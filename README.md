@@ -65,8 +65,9 @@ Unless a later decision overrides it, the recommended starting baseline is:
 The repository now includes a browser-mode skeleton backed by the local Little Navmap Navigraph
 SQLite database:
 
-- `crates/api`: Rust `actix-web` service with viewport-based map layer endpoints and airport procedure endpoints
+- `crates/api`: Rust `actix-web` HTTP transport with versioned endpoints and response mapping
 - `crates/domain`: canonical map, navaid, airway, and procedure response models
+- `crates/navigation`: navdata access and procedure geometry logic for the Little Navmap Navigraph SQLite source
 - `apps/web`: React + TypeScript + Vite shell with Tailwind CSS, a Leaflet map, live layer toggles, and procedure highlight flow
 
 ## Local Run
@@ -109,10 +110,11 @@ If you want the frontend to call a different API origin directly, copy `apps/web
 
 ## Tests
 
-### Rust API tests
+### Rust tests
 
 ```bash
 cargo test -p aip-api
+cargo test -p aip-navigation
 ```
 
 ### Web tests

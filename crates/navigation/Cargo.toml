@@ -1,0 +1,8 @@
+[package]
+name = "aip-navigation"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+aip-domain = { path = "../domain" }
+rusqlite.workspace = true

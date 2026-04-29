@@ -1,5 +1,3 @@
-mod navdb;
-
 use actix_cors::Cors;
 use actix_web::{
     get,
@@ -8,7 +6,7 @@ use actix_web::{
     web::{Data, Json, Path, Query},
     App, HttpResponse, HttpServer, Responder, ResponseError,
 };
-use navdb::{LayerQuery, NavDb};
+use aip_navigation::{LayerQuery, NavDb};
 use serde::{Deserialize, Serialize};
 use std::{env, fmt, io, path::PathBuf};
 use tracing::info;

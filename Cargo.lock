@@ -222,7 +222,7 @@ dependencies = [
  "actix-cors",
  "actix-web",
  "aip-domain",
- "rusqlite",
+ "aip-navigation",
  "serde",
  "serde_json",
  "tracing",
@@ -234,6 +234,14 @@ name = "aip-domain"
 version = "0.1.0"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "aip-navigation"
+version = "0.1.0"
+dependencies = [
+ "aip-domain",
+ "rusqlite",
 ]
 
 [[package]]
