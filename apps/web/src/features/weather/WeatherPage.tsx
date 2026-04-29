@@ -40,7 +40,7 @@ export function WeatherPage({
   onToggleWeatherHistory,
 }: WeatherPageProps) {
   return (
-    <section className="layout-panel min-h-[620px] p-5">
+    <section className="grid gap-4">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="section-kicker">Weather Page</p>

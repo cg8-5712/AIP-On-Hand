@@ -1,13 +1,14 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
-import { AppHeader } from "./features/layout/AppHeader";
-import { LeftSidebar } from "./features/layout/LeftSidebar";
+import { DetailHeader } from "./features/layout/DetailHeader";
 import { MapStage } from "./features/layout/MapStage";
-import { TopNav } from "./features/layout/TopNav";
+import { SideRail } from "./features/layout/SideRail";
 import { AirportInfoPage } from "./features/airport-info/AirportInfoPage";
-import { initialVisibility, panelClass, type ProcedureFilter, type ViewportState } from "./features/app/types";
-import { ProcedurePanel } from "./features/procedures/ProcedurePanel";
+import { initialVisibility, type AppPage, type ProcedureFilter, type ViewportState } from "./features/app/types";
+import { MapDetailPage } from "./features/map/MapDetailPage";
 import { WeatherPage } from "./features/weather/WeatherPage";
 import { formatUnixUtc } from "./features/weather/formatters";
+import { RoutePage } from "./features/route/RoutePage";
+import { SettingsPage } from "./features/settings/SettingsPage";
 import {
   getAirportOverview,
   getAirportProcedures,
@@ -33,8 +34,6 @@ type BootstrapState = {
   version?: VersionResponse;
   error?: string;
 };
-
-type AppPage = "map" | "weather" | "airport-info";
 
 export default function App() {
   const [activePage, setActivePage] = useState<AppPage>("map");
@@ -351,12 +350,11 @@ export default function App() {
     airportOverview?.station?.siteTypes.length
       ? airportOverview.station.siteTypes.join(" / ")
       : "n/a";
-  const viewportSummary = viewport
-    ? `${viewport.zoom.toFixed(0)} / ${viewport.bounds.south.toFixed(1)}-${viewport.bounds.north.toFixed(1)}`
-    : "syncing";
-  const activeLayerCount = Object.values(visibility).filter(Boolean).length;
   const totalProcedureCount = airportProcedures?.procedures.length ?? 0;
   const visibleProcedureCount = filteredProcedures.length;
+  const selectedAirportLabel = selectedAirport
+    ? `${selectedAirport.ident}${selectedAirport.icao ? ` | ${selectedAirport.icao}` : ""}`
+    : "none";
 
   function handleSearchSelection(result: SearchResultItem) {
     setSearchQuery(`${result.ident}${result.airportIdent ? ` ${result.airportIdent}` : ""}`);
@@ -391,100 +389,92 @@ export default function App() {
   return (
     <div className="app-shell">
       <div className="page-frame">
-        <AppHeader
-          searchQuery={searchQuery}
-          deferredSearchQuery={deferredSearchQuery}
-          isSearching={isSearching}
-          searchError={searchError}
-          searchResults={searchResults}
-          onSearchQueryChange={setSearchQuery}
-          onSearchSelection={handleSearchSelection}
-          backendStatus={bootstrap.health?.status ?? "pending"}
-          serviceName={bootstrap.version?.service ?? "unreachable"}
-          serviceVersion={bootstrap.version?.version ?? "version n/a"}
-          airacCycle={layers?.metadata.airacCycle ?? "loading"}
-          viewportSummary={viewportSummary}
-          activeLayerCount={activeLayerCount}
-          selectedProcedureSummary={selectedProcedureSummary}
-          weatherFlightCategory={weatherFlightCategory}
-          weatherObservedAt={weatherObservedAt}
-          stationTypes={stationTypes}
-          selectedWeatherStationId={selectedWeatherStationId}
-          bootstrapError={bootstrap.error}
-          layerError={layerError}
-          procedureError={procedureError}
-        />
+        <div className="grid gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-[78px_380px_minmax(0,1fr)]">
+          <SideRail activePage={activePage} onPageChange={setActivePage} />
 
-        <TopNav activePage={activePage} onPageChange={setActivePage} />
-
-        {activePage === "map" ? (
-          <div className="grid gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-[360px_minmax(0,1fr)_400px]">
-            <LeftSidebar
-              panelClass={panelClass}
-              layers={layers}
-              visibility={visibility}
-              onToggleLayer={toggleLayer}
-              airportFilter={airportFilter}
-              onAirportFilterChange={setAirportFilter}
-              visibleAirports={visibleAirports}
-              selectedAirportIdent={selectedAirportIdent}
-              onAirportSelect={setSelectedAirportIdent}
+          <section className="layout-panel flex min-h-[620px] flex-col overflow-hidden xl:min-h-0">
+            <DetailHeader
+              activePage={activePage}
+              searchQuery={searchQuery}
+              deferredSearchQuery={deferredSearchQuery}
+              isSearching={isSearching}
+              searchError={searchError}
+              searchResults={searchResults}
+              onSearchQueryChange={setSearchQuery}
+              onSearchSelection={handleSearchSelection}
+              backendStatus={bootstrap.health?.status ?? "pending"}
+              airacCycle={layers?.metadata.airacCycle ?? "loading"}
+              selectedAirportLabel={selectedAirportLabel}
+              selectedProcedureLabel={selectedProcedureSummary?.name ?? "none"}
+              weatherFlightCategory={weatherFlightCategory}
+              stationTypes={stationTypes}
+              bootstrapError={bootstrap.error}
+              layerError={layerError}
+              procedureError={procedureError}
             />
 
-            <MapStage
-              layers={layers}
-              selectedAirportIdent={selectedAirportIdent}
-              selectedProcedure={selectedProcedureGeometry}
-              visibility={visibility}
-              onViewportChange={setViewport}
-              onAirportSelect={setSelectedAirportIdent}
-            />
+            <div className="scroll-panel min-h-0 flex-1 overflow-y-auto p-5">
+              {activePage === "map" ? (
+                <MapDetailPage
+                  layers={layers}
+                  visibility={visibility}
+                  onToggleLayer={toggleLayer}
+                  airportFilter={airportFilter}
+                  onAirportFilterChange={setAirportFilter}
+                  visibleAirports={visibleAirports}
+                  selectedAirportIdent={selectedAirportIdent}
+                  onAirportSelect={setSelectedAirportIdent}
+                  selectedAirport={selectedAirport}
+                  totalProcedureCount={totalProcedureCount}
+                  visibleProcedureCount={visibleProcedureCount}
+                  filteredProcedures={filteredProcedures}
+                  selectedProcedureId={selectedProcedureId}
+                  onProcedureSelect={setSelectedProcedureId}
+                  procedureFilter={procedureFilter}
+                  onProcedureFilterChange={setProcedureFilter}
+                  selectedProcedureSummary={selectedProcedureSummary}
+                />
+              ) : null}
 
-            <aside className={`${panelClass} flex min-h-0 flex-col xl:overflow-hidden`}>
-              <div>
-                <p className="section-kicker">Selection Desk</p>
-                <h2 className="section-title">Airport And Procedures</h2>
-              </div>
+              {activePage === "weather" ? (
+                <WeatherPage
+                  selectedAirport={selectedAirport}
+                  selectedWeatherStationId={selectedWeatherStationId}
+                  airportOverview={airportOverview}
+                  weatherError={weatherError}
+                  isWeatherLoading={isWeatherLoading}
+                  weatherHistoryHours={weatherHistoryHours}
+                  weatherFlightCategory={weatherFlightCategory}
+                  weatherObservedAt={weatherObservedAt}
+                  onToggleWeatherHistory={() => setWeatherHistoryHours((current) => (current === 24 ? 0 : 24))}
+                />
+              ) : null}
 
-              <ProcedurePanel
-                selectedAirport={selectedAirport}
-                totalProcedureCount={totalProcedureCount}
-                visibleProcedureCount={visibleProcedureCount}
-                filteredProcedures={filteredProcedures}
-                selectedProcedureId={selectedProcedureId}
-                onProcedureSelect={setSelectedProcedureId}
-                procedureFilter={procedureFilter}
-                onProcedureFilterChange={setProcedureFilter}
-                selectedProcedureSummary={selectedProcedureSummary}
-              />
-            </aside>
-          </div>
-        ) : null}
+              {activePage === "airport-info" ? (
+                <AirportInfoPage
+                  selectedAirport={selectedAirport}
+                  selectedWeatherStationId={selectedWeatherStationId}
+                  airportOverview={airportOverview}
+                  isLoading={isWeatherLoading}
+                  error={weatherError}
+                  stationTypes={stationTypes}
+                />
+              ) : null}
 
-        {activePage === "weather" ? (
-          <WeatherPage
-            selectedAirport={selectedAirport}
-            selectedWeatherStationId={selectedWeatherStationId}
-            airportOverview={airportOverview}
-            weatherError={weatherError}
-            isWeatherLoading={isWeatherLoading}
-            weatherHistoryHours={weatherHistoryHours}
-            weatherFlightCategory={weatherFlightCategory}
-            weatherObservedAt={weatherObservedAt}
-            onToggleWeatherHistory={() => setWeatherHistoryHours((current) => (current === 24 ? 0 : 24))}
+              {activePage === "route" ? <RoutePage /> : null}
+              {activePage === "settings" ? <SettingsPage /> : null}
+            </div>
+          </section>
+
+          <MapStage
+            layers={layers}
+            selectedAirportIdent={selectedAirportIdent}
+            selectedProcedure={selectedProcedureGeometry}
+            visibility={visibility}
+            onViewportChange={setViewport}
+            onAirportSelect={setSelectedAirportIdent}
           />
-        ) : null}
-
-        {activePage === "airport-info" ? (
-          <AirportInfoPage
-            selectedAirport={selectedAirport}
-            selectedWeatherStationId={selectedWeatherStationId}
-            airportOverview={airportOverview}
-            isLoading={isWeatherLoading}
-            error={weatherError}
-            stationTypes={stationTypes}
-          />
-        ) : null}
+        </div>
       </div>
     </div>
   );

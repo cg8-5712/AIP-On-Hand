@@ -14,6 +14,7 @@ export type ViewportState = {
 };
 
 export type ProcedureFilter = "all" | ProcedureKind;
+export type AppPage = "map" | "weather" | "route" | "airport-info" | "settings";
 
 export const initialVisibility: LayerVisibility = {
   airports: true,

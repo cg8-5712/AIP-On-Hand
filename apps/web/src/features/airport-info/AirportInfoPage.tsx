@@ -20,7 +20,7 @@ export function AirportInfoPage({
   stationTypes,
 }: AirportInfoPageProps) {
   return (
-    <section className="layout-panel min-h-[620px] p-5">
+    <section className="grid gap-4">
       <div>
         <p className="section-kicker">Airport Info Page</p>
         <h2 className="section-title">Airport And Observation Station Profile</h2>
