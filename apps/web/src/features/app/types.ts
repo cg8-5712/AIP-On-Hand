@@ -16,7 +16,7 @@ export type ViewportState = {
 };
 
 export type ProcedureFilter = "all" | ProcedureKind;
-export type AppPage = "map" | "weather" | "route" | "airport-info" | "settings";
+export type AppPage = "map" | "eaip" | "weather" | "route" | "fuel" | "settings";
 export type MapFocusRequestPayload =
   | {
       kind: "location";

@@ -24,23 +24,27 @@ type DetailHeaderProps = {
 
 const pageCopy: Record<AppPage, { title: string; description: string }> = {
   map: {
-    title: "Map Detail",
-    description: "Layer controls, viewport airport browser, and procedure inspection stay beside the live map.",
+    title: "Map Workbench",
+    description: "Layer controls, viewport airport browser, procedure selection, and search stay docked beside the live map.",
+  },
+  eaip: {
+    title: "eAIP Desk",
+    description: "Encrypted chart package viewing, airport reference context, and future document navigation live in this workspace.",
   },
   weather: {
-    title: "Weather Detail",
+    title: "Weather Desk",
     description: "METAR, TAF, NOAA decoded text, and rolling cycle history for the currently selected airport.",
   },
   route: {
-    title: "Route Detail",
+    title: "Route Desk",
     description: "This panel is reserved for route construction, legality checks, and export workflow.",
   },
-  "airport-info": {
-    title: "Airport Detail",
-    description: "Airport and station reference data stay visible while the map remains active on the right.",
+  fuel: {
+    title: "Fuel Desk",
+    description: "Fuel planning, reserve logic, and dispatch-ready breakdowns will move into this center workspace.",
   },
   settings: {
-    title: "Settings Detail",
+    title: "Settings Desk",
     description: "Display, source, and local-environment controls will live here.",
   },
 };
@@ -70,7 +74,7 @@ export function DetailHeader({
     <div className="sticky top-0 z-10 border-b border-slate-700/60 bg-slate-950/88 px-5 py-5 backdrop-blur-xl">
       <div className="flex flex-col gap-5">
         <div>
-          <p className="section-kicker">Workbench</p>
+          <p className="section-kicker">AIP On Hand</p>
           <h1 className="hero-title text-[1.7rem] sm:text-[2rem]">{copy.title}</h1>
           <p className="support-copy mt-2 max-w-[48rem] text-sm">{copy.description}</p>
         </div>

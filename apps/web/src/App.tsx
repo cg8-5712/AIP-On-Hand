@@ -2,7 +2,6 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { DetailHeader } from "./features/layout/DetailHeader";
 import { MapStage } from "./features/layout/MapStage";
 import { SideRail } from "./features/layout/SideRail";
-import { AirportInfoPage } from "./features/airport-info/AirportInfoPage";
 import {
   type BasemapTone,
   initialVisibility,
@@ -12,6 +11,8 @@ import {
   type ProcedureFilter,
   type ViewportState,
 } from "./features/app/types";
+import { EaipPage } from "./features/eaip/EaipPage";
+import { FuelPage } from "./features/fuel/FuelPage";
 import { MapDetailPage } from "./features/map/MapDetailPage";
 import { WeatherPage } from "./features/weather/WeatherPage";
 import { formatUnixUtc } from "./features/weather/formatters";
@@ -474,7 +475,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <div className="page-frame">
-        <div className="grid gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-[78px_380px_minmax(0,1fr)]">
+        <div className="grid gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-[110px_400px_minmax(0,1fr)]">
           <SideRail activePage={activePage} onPageChange={setActivePage} />
 
           <section className="layout-panel flex min-h-[620px] flex-col overflow-hidden xl:min-h-0">
@@ -535,8 +536,8 @@ export default function App() {
                 />
               ) : null}
 
-              {activePage === "airport-info" ? (
-                <AirportInfoPage
+              {activePage === "eaip" ? (
+                <EaipPage
                   selectedAirport={selectedAirport}
                   selectedWeatherStationId={selectedWeatherStationId}
                   airportOverview={airportOverview}
@@ -547,6 +548,12 @@ export default function App() {
               ) : null}
 
               {activePage === "route" ? <RoutePage /> : null}
+              {activePage === "fuel" ? (
+                <FuelPage
+                  selectedAirport={selectedAirport}
+                  selectedProcedureSummary={selectedProcedureSummary}
+                />
+              ) : null}
               {activePage === "settings" ? <SettingsPage /> : null}
             </div>
           </section>
