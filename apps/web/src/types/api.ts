@@ -160,3 +160,122 @@ export type Bounds = {
   east: number;
   north: number;
 };
+
+export type AirportInfoSummary = {
+  icaoId?: string | null;
+  iataId?: string | null;
+  faaId?: string | null;
+  name: string;
+  state?: string | null;
+  country?: string | null;
+  source?: string | null;
+  airportType?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  elevationFt?: number | null;
+  magneticDeclination?: string | null;
+  owner?: string | null;
+  runwayCount: number;
+};
+
+export type StationInfoSummary = {
+  icaoId?: string | null;
+  iataId?: string | null;
+  faaId?: string | null;
+  site: string;
+  state?: string | null;
+  country?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  elevationM?: number | null;
+  priority?: number | null;
+  siteTypes: string[];
+};
+
+export type WeatherCloudLayer = {
+  cover: string;
+  baseFt?: number | null;
+  topFt?: number | null;
+};
+
+export type MetarObservation = {
+  icaoId: string;
+  stationName?: string | null;
+  observedAtUnix?: number | null;
+  receivedAt?: string | null;
+  reportedAt?: string | null;
+  rawText: string;
+  flightCategory?: string | null;
+  metarType?: string | null;
+  temperatureC?: number | null;
+  dewpointC?: number | null;
+  windDirection?: string | null;
+  windSpeedKt?: number | null;
+  windGustKt?: number | null;
+  visibilitySm?: string | null;
+  altimeterHpa?: number | null;
+  seaLevelPressureHpa?: number | null;
+  weather?: string | null;
+  verticalVisibilityFt?: number | null;
+  precipitationLastHourIn?: number | null;
+  precipitationLast3hIn?: number | null;
+  precipitationLast6hIn?: number | null;
+  precipitationLast24hIn?: number | null;
+  clouds: WeatherCloudLayer[];
+};
+
+export type TafForecastSegment = {
+  validFromUnix?: number | null;
+  validToUnix?: number | null;
+  transitionEndUnix?: number | null;
+  changeType?: string | null;
+  probability?: number | null;
+  windDirection?: string | null;
+  windSpeedKt?: number | null;
+  windGustKt?: number | null;
+  visibilitySm?: string | null;
+  altimeterHpa?: number | null;
+  weather?: string | null;
+  verticalVisibilityFt?: number | null;
+  notDecoded?: string | null;
+  clouds: WeatherCloudLayer[];
+};
+
+export type TafReport = {
+  icaoId: string;
+  stationName?: string | null;
+  issuedAt?: string | null;
+  bulletinTime?: string | null;
+  validFromUnix?: number | null;
+  validToUnix?: number | null;
+  rawText: string;
+  remarks?: string | null;
+  forecastSegments: TafForecastSegment[];
+};
+
+export type WeatherTextBulletin = {
+  issuedAt?: string | null;
+  text: string;
+};
+
+export type NoaaCycleMetar = {
+  cycleLabel: string;
+  rawText: string;
+};
+
+export type NoaaWeatherSupplement = {
+  currentRaw?: WeatherTextBulletin | null;
+  currentDecoded?: WeatherTextBulletin | null;
+  recentCycles: NoaaCycleMetar[];
+};
+
+export type AirportWeatherOverviewResponse = {
+  requestedId: string;
+  resolvedId: string;
+  airport?: AirportInfoSummary | null;
+  station?: StationInfoSummary | null;
+  metar?: MetarObservation | null;
+  taf?: TafReport | null;
+  noaa: NoaaWeatherSupplement;
+  warnings: string[];
+};

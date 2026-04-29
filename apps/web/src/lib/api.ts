@@ -1,4 +1,5 @@
 import type {
+  AirportWeatherOverviewResponse,
   AirportProceduresResponse,
   Bounds,
   HealthResponse,
@@ -80,4 +81,22 @@ export function searchNavdata(query: string, options?: RequestOptions) {
   });
 
   return requestJson<SearchResponse>(`/api/v1/search?${params.toString()}`, options);
+}
+
+type AirportOverviewOptions = RequestOptions & {
+  historyHours?: number;
+};
+
+export function getAirportOverview(stationId: string, options?: AirportOverviewOptions) {
+  const params = new URLSearchParams();
+  if (typeof options?.historyHours === "number" && options.historyHours > 0) {
+    params.set("historyHours", String(options.historyHours));
+  }
+
+  const suffix = params.size > 0 ? `?${params.toString()}` : "";
+
+  return requestJson<AirportWeatherOverviewResponse>(
+    `/api/v1/airports/${encodeURIComponent(stationId)}/overview${suffix}`,
+    options,
+  );
 }

@@ -1,0 +1,14 @@
+[package]
+name = "aip-weather"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+aip-domain = { path = "../domain" }
+chrono.workspace = true
+futures-util.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true

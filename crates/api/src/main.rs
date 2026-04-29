@@ -7,6 +7,7 @@ use actix_web::{
     App, HttpResponse, HttpServer, Responder, ResponseError,
 };
 use aip_navigation::{LayerQuery, NavDb};
+use aip_weather::{WeatherError, WeatherService};
 use serde::{Deserialize, Serialize};
 use std::{env, fmt, io, path::PathBuf};
 use tracing::info;
@@ -15,18 +16,22 @@ use tracing_subscriber::EnvFilter;
 #[derive(Clone)]
 struct AppState {
     nav_db: NavDb,
+    weather_service: WeatherService,
 }
 
 #[derive(Debug)]
 enum ApiError {
     NotFound(String),
+    Upstream(String),
     Internal(String),
 }
 
 impl fmt::Display for ApiError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NotFound(message) | Self::Internal(message) => formatter.write_str(message),
+            Self::NotFound(message)
+            | Self::Upstream(message)
+            | Self::Internal(message) => formatter.write_str(message),
         }
     }
 }
@@ -35,6 +40,7 @@ impl ResponseError for ApiError {
     fn status_code(&self) -> StatusCode {
         match self {
             Self::NotFound(_) => StatusCode::NOT_FOUND,
+            Self::Upstream(_) => StatusCode::BAD_GATEWAY,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -85,6 +91,12 @@ struct MapLayersQuery {
 #[serde(rename_all = "camelCase")]
 struct SearchQuery {
     q: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AirportOverviewQuery {
+    history_hours: Option<usize>,
 }
 
 #[get("/api/v1/health")]
@@ -174,6 +186,29 @@ async fn search(
     Ok(Json(payload))
 }
 
+#[get("/api/v1/airports/{station_id}/overview")]
+async fn airport_overview(
+    state: Data<AppState>,
+    station_id: Path<String>,
+    query: Query<AirportOverviewQuery>,
+) -> Result<Json<aip_domain::AirportWeatherOverviewResponse>, ApiError> {
+    let payload = state
+        .weather_service
+        .airport_overview(&station_id.into_inner(), query.history_hours.unwrap_or(0))
+        .await
+        .map_err(map_weather_error)?;
+
+    Ok(Json(payload))
+}
+
+fn map_weather_error(error: WeatherError) -> ApiError {
+    match error {
+        WeatherError::InvalidInput(message) => ApiError::Internal(message),
+        WeatherError::NotFound(message) => ApiError::NotFound(message),
+        WeatherError::Upstream(message) => ApiError::Upstream(message),
+    }
+}
+
 fn configure_logging() {
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,actix_web=info"));
@@ -195,7 +230,7 @@ fn port() -> u16 {
 fn nav_db_path() -> PathBuf {
     env::var("AIP_NAVDB_PATH")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(r"D:\little_navmap_navigraph.sqlite"))
+        .unwrap_or_else(|_| PathBuf::from(r"F:\bian\jsproject\Open-Navigraph\data\little_navmap_navigraph.sqlite"))
 }
 
 #[actix_web::main]
@@ -211,6 +246,12 @@ async fn main() -> io::Result<()> {
             format!("failed to open nav database: {error}"),
         )
     })?;
+    let weather_service = WeatherService::from_env().map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::Other,
+            format!("failed to initialize weather service: {error}"),
+        )
+    })?;
     let metadata = nav_db.metadata();
 
     info!(
@@ -218,7 +259,10 @@ async fn main() -> io::Result<()> {
         bind_address, metadata.airac_cycle, metadata.data_source
     );
 
-    let state = Data::new(AppState { nav_db });
+    let state = Data::new(AppState {
+        nav_db,
+        weather_service,
+    });
 
     HttpServer::new(move || {
         App::new()
@@ -230,6 +274,7 @@ async fn main() -> io::Result<()> {
             .service(version)
             .service(map_layers)
             .service(airport_procedures)
+            .service(airport_overview)
             .service(procedure_geometry)
             .service(search)
     })

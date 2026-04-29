@@ -8,6 +8,7 @@ actix-cors.workspace = true
 actix-web.workspace = true
 aip-domain = { path = "../domain" }
 aip-navigation = { path = "../navigation" }
+aip-weather = { path = "../weather" }
 serde.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
