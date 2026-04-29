@@ -4,6 +4,7 @@ import { MapStage } from "./features/layout/MapStage";
 import { SideRail } from "./features/layout/SideRail";
 import { AirportInfoPage } from "./features/airport-info/AirportInfoPage";
 import {
+  type BasemapTone,
   initialVisibility,
   type AppPage,
   type MapFocusRequest,
@@ -42,6 +43,21 @@ type BootstrapState = {
   error?: string;
 };
 
+const basemapToneStorageKey = "aoh.basemap-tone";
+
+function getInitialBasemapTone(): BasemapTone {
+  if (typeof window === "undefined") {
+    return "classic";
+  }
+
+  const stored = window.localStorage.getItem(basemapToneStorageKey);
+  if (stored === "classic" || stored === "dark" || stored === "light") {
+    return stored;
+  }
+
+  return "classic";
+}
+
 export default function App() {
   const [activePage, setActivePage] = useState<AppPage>("map");
   const [bootstrap, setBootstrap] = useState<BootstrapState>({});
@@ -66,6 +82,7 @@ export default function App() {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [focusRequest, setFocusRequest] = useState<MapFocusRequest | null>(null);
+  const [basemapTone, setBasemapTone] = useState<BasemapTone>(getInitialBasemapTone);
   const deferredAirportFilter = useDeferredValue(airportFilter);
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const focusRequestIdRef = useRef(0);
@@ -135,6 +152,14 @@ export default function App() {
       controller.abort();
     };
   }, [deferredSearchQuery]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(basemapToneStorageKey, basemapTone);
+  }, [basemapTone]);
 
   useEffect(() => {
     if (!viewport) {
@@ -531,9 +556,11 @@ export default function App() {
             selectedAirportIdent={selectedAirportIdent}
             selectedProcedure={selectedProcedureGeometry}
             focusRequest={focusRequest}
+            basemapTone={basemapTone}
             visibility={visibility}
             onViewportChange={setViewport}
             onAirportSelect={setSelectedAirportIdent}
+            onBasemapToneChange={setBasemapTone}
             onFocusRequestHandled={(requestId) => {
               setFocusRequest((current) => (current?.requestId === requestId ? null : current));
             }}

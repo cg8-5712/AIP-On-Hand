@@ -8,6 +8,8 @@ export type LayerVisibility = {
   airways: boolean;
 };
 
+export type BasemapTone = "classic" | "dark" | "light";
+
 export type ViewportState = {
   bounds: Bounds;
   zoom: number;

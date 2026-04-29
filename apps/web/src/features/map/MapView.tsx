@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { Bounds, MapLayersResponse, ProcedureGeometryResponse } from "../../types/api";
-import type { MapFocusRequest } from "../app/types";
+import type { BasemapTone, MapFocusRequest } from "../app/types";
 
 type LayerVisibility = {
   airports: boolean;
@@ -22,17 +22,52 @@ type MapViewProps = {
   selectedAirportIdent: string | null;
   selectedProcedure: ProcedureGeometryResponse | null;
   focusRequest: MapFocusRequest | null;
+  basemapTone: BasemapTone;
   visibility: LayerVisibility;
   onViewportChange: (viewport: ViewportState) => void;
   onAirportSelect: (airportIdent: string) => void;
   onFocusRequestHandled: (requestId: number) => void;
 };
 
+const basemapConfig: Record<BasemapTone, { url: string; attribution: string; subdomains?: string }> = {
+  classic: {
+    url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  },
+  dark: {
+    url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    subdomains: "abcd",
+  },
+  light: {
+    url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    subdomains: "abcd",
+  },
+};
+
+function createBasemapLayer(tone: BasemapTone) {
+  const config = basemapConfig[tone];
+  const options: L.TileLayerOptions = {
+    maxZoom: 20,
+    className: "navmap-tile",
+  };
+
+  if (config.subdomains) {
+    options.subdomains = config.subdomains;
+  }
+
+  return L.tileLayer(config.url, options);
+}
+
 export function MapView({
   layers,
   selectedAirportIdent,
   selectedProcedure,
   focusRequest,
+  basemapTone,
   visibility,
   onViewportChange,
   onAirportSelect,
@@ -40,6 +75,9 @@ export function MapView({
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const attributionControlRef = useRef<L.Control.Attribution | null>(null);
+  const currentAttributionRef = useRef<string | null>(null);
+  const basemapLayerRef = useRef<L.TileLayer | null>(null);
   const airwayLayerRef = useRef<L.LayerGroup | null>(null);
   const waypointLayerRef = useRef<L.LayerGroup | null>(null);
   const vorLayerRef = useRef<L.LayerGroup | null>(null);
@@ -54,6 +92,8 @@ export function MapView({
       return;
     }
 
+    delete (containerRef.current as HTMLDivElement & { _leaflet_id?: number })._leaflet_id;
+
     const map = L.map(containerRef.current, {
       zoomControl: false,
       attributionControl: false,
@@ -65,20 +105,17 @@ export function MapView({
       })
       .addTo(map);
 
-    L.control
+    attributionControlRef.current = L.control
       .attribution({
         position: "bottomleft",
         prefix: false,
       })
-      .addAttribution(
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-      )
       .addTo(map);
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      className: "navmap-tile",
-    }).addTo(map);
+    attributionControlRef.current.addAttribution(basemapConfig[basemapTone].attribution);
+    currentAttributionRef.current = basemapConfig[basemapTone].attribution;
+
+    basemapLayerRef.current = createBasemapLayer(basemapTone).addTo(map);
 
     airwayLayerRef.current = L.layerGroup().addTo(map);
     waypointLayerRef.current = L.layerGroup().addTo(map);
@@ -124,6 +161,9 @@ export function MapView({
       resizeObserver?.disconnect();
       map.remove();
       mapRef.current = null;
+      attributionControlRef.current = null;
+      currentAttributionRef.current = null;
+      basemapLayerRef.current = null;
       airwayLayerRef.current = null;
       waypointLayerRef.current = null;
       vorLayerRef.current = null;
@@ -133,6 +173,27 @@ export function MapView({
       procedureLayerRef.current = null;
     };
   }, [onViewportChange]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const currentBasemapLayer = basemapLayerRef.current;
+
+    if (!map || !currentBasemapLayer) {
+      return;
+    }
+
+    const nextBasemapLayer = createBasemapLayer(basemapTone);
+
+    if (attributionControlRef.current && currentAttributionRef.current) {
+      attributionControlRef.current.removeAttribution(currentAttributionRef.current);
+    }
+    attributionControlRef.current?.addAttribution(basemapConfig[basemapTone].attribution);
+    currentAttributionRef.current = basemapConfig[basemapTone].attribution;
+
+    currentBasemapLayer.removeFrom(map);
+    nextBasemapLayer.addTo(map);
+    basemapLayerRef.current = nextBasemapLayer;
+  }, [basemapTone]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -377,7 +438,7 @@ export function MapView({
 
   return (
     <div
-      className="h-full min-h-[620px] w-full xl:min-h-0"
+      className={`map-tone-${basemapTone} h-full min-h-[620px] w-full xl:min-h-0`}
       ref={containerRef}
     />
   );

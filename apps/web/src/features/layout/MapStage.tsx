@@ -1,6 +1,6 @@
 import { MapView } from "../map/MapView";
-import { LegendItem, MapBadge } from "../shared/PanelPrimitives";
-import type { LayerVisibility, MapFocusRequest, ViewportState } from "../app/types";
+import { FilterChip, LegendItem, MapBadge } from "../shared/PanelPrimitives";
+import type { BasemapTone, LayerVisibility, MapFocusRequest, ViewportState } from "../app/types";
 import type { MapLayersResponse, ProcedureGeometryResponse } from "../../types/api";
 
 type MapStageProps = {
@@ -8,9 +8,11 @@ type MapStageProps = {
   selectedAirportIdent: string | null;
   selectedProcedure: ProcedureGeometryResponse | null;
   focusRequest: MapFocusRequest | null;
+  basemapTone: BasemapTone;
   visibility: LayerVisibility;
   onViewportChange: (viewport: ViewportState) => void;
   onAirportSelect: (airportIdent: string) => void;
+  onBasemapToneChange: (tone: BasemapTone) => void;
   onFocusRequestHandled: (requestId: number) => void;
 };
 
@@ -19,9 +21,11 @@ export function MapStage({
   selectedAirportIdent,
   selectedProcedure,
   focusRequest,
+  basemapTone,
   visibility,
   onViewportChange,
   onAirportSelect,
+  onBasemapToneChange,
   onFocusRequestHandled,
 }: MapStageProps) {
   const selectedProcedureSummary = selectedProcedure?.summary ?? null;
@@ -35,6 +39,7 @@ export function MapStage({
           selectedAirportIdent={selectedAirportIdent}
           selectedProcedure={selectedProcedure}
           focusRequest={focusRequest}
+          basemapTone={basemapTone}
           visibility={visibility}
           onViewportChange={onViewportChange}
           onAirportSelect={onAirportSelect}
@@ -53,10 +58,30 @@ export function MapStage({
               </p>
             </div>
 
-            <div className="grid gap-2 md:grid-cols-3">
+            <div className="grid gap-2 md:grid-cols-4">
               <MapBadge label="Selected" value={selectedAirportIdent ?? "none"} />
               <MapBadge label="Procedure" value={selectedProcedureSummary?.procedureKind ?? "idle"} />
               <MapBadge label="Path Points" value={String(selectedPathCount)} />
+              <div className="overlay-card pointer-events-auto min-w-[240px]">
+                <p className="stat-label">Basemap</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <FilterChip
+                    label="Classic"
+                    isActive={basemapTone === "classic"}
+                    onClick={() => onBasemapToneChange("classic")}
+                  />
+                  <FilterChip
+                    label="Dark"
+                    isActive={basemapTone === "dark"}
+                    onClick={() => onBasemapToneChange("dark")}
+                  />
+                  <FilterChip
+                    label="Light"
+                    isActive={basemapTone === "light"}
+                    onClick={() => onBasemapToneChange("light")}
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </div>
