@@ -18,11 +18,13 @@ vi.mock("./features/map/MapView", async () => {
       layers,
       selectedAirportIdent,
       selectedProcedure,
+      focusRequest,
       onViewportChange,
     }: {
       layers: MapLayersResponse | null;
       selectedAirportIdent: string | null;
       selectedProcedure: ProcedureGeometryResponse | null;
+      focusRequest: { requestId: number; kind: string } | null;
       onViewportChange: (viewport: {
         bounds: { west: number; south: number; east: number; north: number };
         zoom: number;
@@ -47,6 +49,7 @@ vi.mock("./features/map/MapView", async () => {
           <span data-testid="map-selected-procedure">
             {selectedProcedure?.summary.name ?? "none"}
           </span>
+          <span data-testid="map-focus-request">{focusRequest?.kind ?? "none"}</span>
         </div>
       );
     },
@@ -157,6 +160,47 @@ const procedureGeometryResponse: ProcedureGeometryResponse = {
   missedPath: [],
 };
 
+const daxingProceduresResponse: AirportProceduresResponse = {
+  airport: {
+    id: 17000,
+    ident: "ZBAD",
+    icao: null,
+    name: "Daxing",
+    location: { lon: 116.4108, lat: 39.5098 },
+  },
+  procedures: [
+    {
+      id: 82001,
+      airportIdent: "ZBAD",
+      airportName: "Daxing",
+      name: "DAXI1A",
+      arincName: "RW01L",
+      procedureType: "RNAV",
+      procedureKind: "sid",
+      runwayName: "01L",
+      legs: 7,
+    },
+  ],
+};
+
+const daxingProcedureGeometryResponse: ProcedureGeometryResponse = {
+  airport: daxingProceduresResponse.airport,
+  summary: daxingProceduresResponse.procedures[0],
+  path: [
+    {
+      ident: "DAX01",
+      legType: "DF",
+      position: { lon: 116.401, lat: 39.5112 },
+    },
+    {
+      ident: "DAXEN",
+      legType: "TF",
+      position: { lon: 116.118, lat: 39.822 },
+    },
+  ],
+  missedPath: [],
+};
+
 const searchResponse: SearchResponse = {
   query: "idke",
   results: [
@@ -206,6 +250,18 @@ describe("App", () => {
     expect(view.getByText("IDKE2G")).toBeInTheDocument();
   });
 
+  it("does not auto-select a procedure when the visible airport list refreshes", async () => {
+    const view = render(<App />);
+
+    await view.findByText("AIP On Hand");
+    await vi.waitFor(() => {
+      expect(view.getByTestId("map-selected-airport")).toHaveTextContent("ZBAA");
+    });
+
+    expect(view.getByTestId("map-selected-procedure")).toHaveTextContent("none");
+    expect(api.getProcedureGeometry).not.toHaveBeenCalled();
+  });
+
   it("filters the visible airport list", async () => {
     const user = userEvent.setup();
 
@@ -219,6 +275,49 @@ describe("App", () => {
 
     expect(view.getByRole("button", { name: "Daxing" })).toBeInTheDocument();
     expect(view.queryByRole("button", { name: "Capital" })).not.toBeInTheDocument();
+  });
+
+  it("keeps a searched procedure selection while switching to another airport", async () => {
+    const user = userEvent.setup();
+
+    vi.spyOn(api, "getAirportProcedures").mockImplementation(async (airportIdent) => {
+      return airportIdent === "ZBAD" ? daxingProceduresResponse : airportProceduresResponse;
+    });
+    vi.spyOn(api, "getProcedureGeometry").mockImplementation(async (procedureId) => {
+      return procedureId === 82001 ? daxingProcedureGeometryResponse : procedureGeometryResponse;
+    });
+    vi.spyOn(api, "searchNavdata").mockResolvedValue({
+      query: "daxi",
+      results: [
+        {
+          id: "procedure:82001",
+          entityType: "sid",
+          ident: "DAXI1A",
+          name: "RW01L",
+          airportIdent: "ZBAD",
+          airportName: "Daxing",
+          procedureId: 82001,
+          procedureKind: "sid",
+          procedureType: "RNAV",
+          runwayName: "01L",
+          location: { lon: 116.4108, lat: 39.5098 },
+        },
+      ],
+    });
+
+    const view = render(<App />);
+
+    const globalSearch = await view.findByRole("searchbox", {
+      name: /search navdata and procedures/i,
+    });
+
+    await user.type(globalSearch, "daxi");
+    await user.click(await view.findByRole("button", { name: "DAXI1A" }));
+
+    await vi.waitFor(() => {
+      expect(view.getByTestId("map-selected-airport")).toHaveTextContent("ZBAD");
+      expect(view.getByTestId("map-selected-procedure")).toHaveTextContent("DAXI1A");
+    });
   });
 
   it("updates the selected procedure highlight when another procedure is chosen", async () => {

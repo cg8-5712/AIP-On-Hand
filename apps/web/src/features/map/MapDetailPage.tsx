@@ -12,7 +12,7 @@ type MapDetailPageProps = {
   onAirportFilterChange: (value: string) => void;
   visibleAirports: AirportFeature[];
   selectedAirportIdent: string | null;
-  onAirportSelect: (airportIdent: string) => void;
+  onAirportSelect: (airport: AirportFeature) => void;
   selectedAirport: AirportFeature | null;
   totalProcedureCount: number;
   visibleProcedureCount: number;

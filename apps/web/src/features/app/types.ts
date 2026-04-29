@@ -1,4 +1,4 @@
-import type { Bounds, ProcedureKind } from "../../types/api";
+import type { Bounds, LatLon, ProcedureKind } from "../../types/api";
 
 export type LayerVisibility = {
   airports: boolean;
@@ -15,6 +15,25 @@ export type ViewportState = {
 
 export type ProcedureFilter = "all" | ProcedureKind;
 export type AppPage = "map" | "weather" | "route" | "airport-info" | "settings";
+export type MapFocusRequestPayload =
+  | {
+      kind: "location";
+      location: LatLon;
+      zoom?: number;
+      preserveZoom?: boolean;
+    }
+  | {
+      kind: "bounds";
+      points: LatLon[];
+    }
+  | {
+      kind: "procedure";
+      procedureId: number;
+    };
+
+export type MapFocusRequest = MapFocusRequestPayload & {
+  requestId: number;
+};
 
 export const initialVisibility: LayerVisibility = {
   airports: true,

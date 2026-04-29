@@ -1,24 +1,28 @@
 import { MapView } from "../map/MapView";
 import { LegendItem, MapBadge } from "../shared/PanelPrimitives";
-import type { LayerVisibility, ViewportState } from "../app/types";
+import type { LayerVisibility, MapFocusRequest, ViewportState } from "../app/types";
 import type { MapLayersResponse, ProcedureGeometryResponse } from "../../types/api";
 
 type MapStageProps = {
   layers: MapLayersResponse | null;
   selectedAirportIdent: string | null;
   selectedProcedure: ProcedureGeometryResponse | null;
+  focusRequest: MapFocusRequest | null;
   visibility: LayerVisibility;
   onViewportChange: (viewport: ViewportState) => void;
   onAirportSelect: (airportIdent: string) => void;
+  onFocusRequestHandled: (requestId: number) => void;
 };
 
 export function MapStage({
   layers,
   selectedAirportIdent,
   selectedProcedure,
+  focusRequest,
   visibility,
   onViewportChange,
   onAirportSelect,
+  onFocusRequestHandled,
 }: MapStageProps) {
   const selectedProcedureSummary = selectedProcedure?.summary ?? null;
   const selectedPathCount = (selectedProcedure?.path.length ?? 0) + (selectedProcedure?.missedPath.length ?? 0);
@@ -30,9 +34,11 @@ export function MapStage({
           layers={layers}
           selectedAirportIdent={selectedAirportIdent}
           selectedProcedure={selectedProcedure}
+          focusRequest={focusRequest}
           visibility={visibility}
           onViewportChange={onViewportChange}
           onAirportSelect={onAirportSelect}
+          onFocusRequestHandled={onFocusRequestHandled}
         />
 
         <div className="pointer-events-none absolute inset-x-0 top-0 z-[500] flex flex-col gap-3 p-4 md:p-5">

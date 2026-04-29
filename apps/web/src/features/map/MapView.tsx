@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { Bounds, MapLayersResponse, ProcedureGeometryResponse } from "../../types/api";
+import type { MapFocusRequest } from "../app/types";
 
 type LayerVisibility = {
   airports: boolean;
@@ -20,18 +21,22 @@ type MapViewProps = {
   layers: MapLayersResponse | null;
   selectedAirportIdent: string | null;
   selectedProcedure: ProcedureGeometryResponse | null;
+  focusRequest: MapFocusRequest | null;
   visibility: LayerVisibility;
   onViewportChange: (viewport: ViewportState) => void;
   onAirportSelect: (airportIdent: string) => void;
+  onFocusRequestHandled: (requestId: number) => void;
 };
 
 export function MapView({
   layers,
   selectedAirportIdent,
   selectedProcedure,
+  focusRequest,
   visibility,
   onViewportChange,
   onAirportSelect,
+  onFocusRequestHandled,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -42,7 +47,7 @@ export function MapView({
   const airportLayerRef = useRef<L.LayerGroup | null>(null);
   const selectedAirportLayerRef = useRef<L.LayerGroup | null>(null);
   const procedureLayerRef = useRef<L.LayerGroup | null>(null);
-  const lastProcedureIdRef = useRef<number | null>(null);
+  const lastHandledFocusRequestIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) {
@@ -252,7 +257,6 @@ export function MapView({
     procedureLayer.clearLayers();
 
     if (!selectedProcedure) {
-      lastProcedureIdRef.current = null;
       return;
     }
 
@@ -289,15 +293,87 @@ export function MapView({
         fillOpacity: 0.95,
       }).addTo(procedureLayer);
     }
+  }, [selectedProcedure]);
 
-    if (selectedProcedure.summary.id !== lastProcedureIdRef.current && highlightedPoints.length > 1) {
-      map.fitBounds(L.latLngBounds(highlightedPoints).pad(0.25), {
+  useEffect(() => {
+    const map = mapRef.current;
+
+    if (!map || !focusRequest || lastHandledFocusRequestIdRef.current === focusRequest.requestId) {
+      return;
+    }
+
+    if (focusRequest.kind === "location") {
+      if (focusRequest.preserveZoom) {
+        map.panTo([focusRequest.location.lat, focusRequest.location.lon], {
+          animate: true,
+        });
+      } else {
+        map.flyTo([focusRequest.location.lat, focusRequest.location.lon], focusRequest.zoom ?? 10, {
+          animate: true,
+          duration: 0.85,
+        });
+      }
+      lastHandledFocusRequestIdRef.current = focusRequest.requestId;
+      onFocusRequestHandled(focusRequest.requestId);
+      return;
+    }
+
+    if (focusRequest.kind === "bounds") {
+      if (focusRequest.points.length === 0) {
+        lastHandledFocusRequestIdRef.current = focusRequest.requestId;
+        onFocusRequestHandled(focusRequest.requestId);
+        return;
+      }
+
+      if (focusRequest.points.length === 1) {
+        const [point] = focusRequest.points;
+        map.flyTo([point.lat, point.lon], 10, {
+          animate: true,
+          duration: 0.85,
+        });
+      } else {
+        map.fitBounds(
+          L.latLngBounds(focusRequest.points.map((point) => [point.lat, point.lon] as L.LatLngTuple)).pad(0.25),
+          {
+            animate: true,
+          },
+        );
+      }
+
+      lastHandledFocusRequestIdRef.current = focusRequest.requestId;
+      onFocusRequestHandled(focusRequest.requestId);
+      return;
+    }
+
+    if (!selectedProcedure || selectedProcedure.summary.id !== focusRequest.procedureId) {
+      return;
+    }
+
+    const procedurePoints = [...selectedProcedure.path, ...selectedProcedure.missedPath].map(
+      (point) => [point.position.lat, point.position.lon] as L.LatLngTuple,
+    );
+
+    if (procedurePoints.length === 0) {
+      lastHandledFocusRequestIdRef.current = focusRequest.requestId;
+      onFocusRequestHandled(focusRequest.requestId);
+      return;
+    }
+
+    if (procedurePoints.length === 1) {
+      const [point] = procedurePoints;
+      map.flyTo(point, 10, {
+        animate: true,
+        duration: 0.85,
+      });
+    } else {
+      map.fitBounds(L.latLngBounds(procedurePoints).pad(0.25), {
         animate: true,
       });
     }
 
-    lastProcedureIdRef.current = selectedProcedure.summary.id;
-  }, [selectedProcedure]);
+    lastHandledFocusRequestIdRef.current = focusRequest.requestId;
+    onFocusRequestHandled(focusRequest.requestId);
+  }, [focusRequest, onFocusRequestHandled, selectedProcedure]);
 
   return (
     <div

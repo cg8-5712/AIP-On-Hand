@@ -19,7 +19,7 @@ type LeftSidebarProps = {
   onAirportFilterChange: (value: string) => void;
   visibleAirports: AirportFeature[];
   selectedAirportIdent: string | null;
-  onAirportSelect: (airportIdent: string) => void;
+  onAirportSelect: (airport: AirportFeature) => void;
 };
 
 export function LeftSidebar({
@@ -98,7 +98,7 @@ export function LeftSidebar({
                   : "border-slate-700/60 bg-slate-950/52 text-slate-300 hover:border-cyan-300/24 hover:bg-slate-900/88")
               }
               type="button"
-              onClick={() => onAirportSelect(airport.ident)}
+              onClick={() => onAirportSelect(airport)}
               aria-label={airport.name}
             >
               <div className="flex items-center justify-between gap-3">

@@ -1,9 +1,16 @@
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { DetailHeader } from "./features/layout/DetailHeader";
 import { MapStage } from "./features/layout/MapStage";
 import { SideRail } from "./features/layout/SideRail";
 import { AirportInfoPage } from "./features/airport-info/AirportInfoPage";
-import { initialVisibility, type AppPage, type ProcedureFilter, type ViewportState } from "./features/app/types";
+import {
+  initialVisibility,
+  type AppPage,
+  type MapFocusRequest,
+  type MapFocusRequestPayload,
+  type ProcedureFilter,
+  type ViewportState,
+} from "./features/app/types";
 import { MapDetailPage } from "./features/map/MapDetailPage";
 import { WeatherPage } from "./features/weather/WeatherPage";
 import { formatUnixUtc } from "./features/weather/formatters";
@@ -58,8 +65,10 @@ export default function App() {
   const [searchResults, setSearchResults] = useState<SearchResultItem[]>([]);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
+  const [focusRequest, setFocusRequest] = useState<MapFocusRequest | null>(null);
   const deferredAirportFilter = useDeferredValue(airportFilter);
   const deferredSearchQuery = useDeferredValue(searchQuery);
+  const focusRequestIdRef = useRef(0);
 
   useEffect(() => {
     let active = true;
@@ -158,11 +167,10 @@ export default function App() {
 
   useEffect(() => {
     if (!layers || layers.airports.length === 0) {
-      setSelectedAirportIdent(null);
       return;
     }
 
-    if (!selectedAirportIdent || !layers.airports.some((airport) => airport.ident === selectedAirportIdent)) {
+    if (!selectedAirportIdent) {
       setSelectedAirportIdent(layers.airports[0].ident);
     }
   }, [layers, selectedAirportIdent]);
@@ -184,7 +192,7 @@ export default function App() {
         setSelectedProcedureId((current) =>
           current && response.procedures.some((procedure) => procedure.id === current)
             ? current
-            : response.procedures[0]?.id ?? null,
+            : null,
         );
       })
       .catch((error) => {
@@ -338,10 +346,14 @@ export default function App() {
       return;
     }
 
-    if (!filteredProcedures.some((procedure) => procedure.id === selectedProcedureId)) {
-      setSelectedProcedureId(filteredProcedures[0]?.id ?? null);
+    if (!airportProcedures || airportProcedures.airport.ident !== selectedAirportIdent) {
+      return;
     }
-  }, [filteredProcedures, procedureFilter, selectedProcedureId]);
+
+    if (!filteredProcedures.some((procedure) => procedure.id === selectedProcedureId)) {
+      setSelectedProcedureId(null);
+    }
+  }, [airportProcedures, filteredProcedures, procedureFilter, selectedAirportIdent, selectedProcedureId]);
 
   const selectedProcedureSummary = selectedProcedureGeometry?.summary ?? null;
   const weatherFlightCategory = airportOverview?.metar?.flightCategory ?? "n/a";
@@ -355,6 +367,31 @@ export default function App() {
   const selectedAirportLabel = selectedAirport
     ? `${selectedAirport.ident}${selectedAirport.icao ? ` | ${selectedAirport.icao}` : ""}`
     : "none";
+
+  function queueMapFocus(request: MapFocusRequestPayload) {
+    focusRequestIdRef.current += 1;
+    setFocusRequest({
+      requestId: focusRequestIdRef.current,
+      ...request,
+    });
+  }
+
+  function handleViewportAirportSelect(airport: AirportFeature) {
+    setSelectedAirportIdent(airport.ident);
+    queueMapFocus({
+      kind: "location",
+      location: airport.location,
+      preserveZoom: true,
+    });
+  }
+
+  function handleProcedureListSelect(procedureId: number) {
+    setSelectedProcedureId(procedureId);
+    queueMapFocus({
+      kind: "procedure",
+      procedureId,
+    });
+  }
 
   function handleSearchSelection(result: SearchResultItem) {
     setSearchQuery(`${result.ident}${result.airportIdent ? ` ${result.airportIdent}` : ""}`);
@@ -370,6 +407,29 @@ export default function App() {
         setProcedureFilter(result.procedureKind);
       }
       setSelectedProcedureId(result.procedureId);
+      queueMapFocus({
+        kind: "procedure",
+        procedureId: result.procedureId,
+      });
+      setActivePage("map");
+      return;
+    }
+
+    if (result.entityType === "airway" && result.from && result.to) {
+      queueMapFocus({
+        kind: "bounds",
+        points: [result.from, result.to],
+      });
+      setActivePage("map");
+      return;
+    }
+
+    if (result.location) {
+      queueMapFocus({
+        kind: "location",
+        location: result.location,
+        zoom: result.entityType === "airport" ? 10 : 11,
+      });
       setActivePage("map");
       return;
     }
@@ -423,13 +483,13 @@ export default function App() {
                   onAirportFilterChange={setAirportFilter}
                   visibleAirports={visibleAirports}
                   selectedAirportIdent={selectedAirportIdent}
-                  onAirportSelect={setSelectedAirportIdent}
+                  onAirportSelect={handleViewportAirportSelect}
                   selectedAirport={selectedAirport}
                   totalProcedureCount={totalProcedureCount}
                   visibleProcedureCount={visibleProcedureCount}
                   filteredProcedures={filteredProcedures}
                   selectedProcedureId={selectedProcedureId}
-                  onProcedureSelect={setSelectedProcedureId}
+                  onProcedureSelect={handleProcedureListSelect}
                   procedureFilter={procedureFilter}
                   onProcedureFilterChange={setProcedureFilter}
                   selectedProcedureSummary={selectedProcedureSummary}
@@ -470,9 +530,13 @@ export default function App() {
             layers={layers}
             selectedAirportIdent={selectedAirportIdent}
             selectedProcedure={selectedProcedureGeometry}
+            focusRequest={focusRequest}
             visibility={visibility}
             onViewportChange={setViewport}
             onAirportSelect={setSelectedAirportIdent}
+            onFocusRequestHandled={(requestId) => {
+              setFocusRequest((current) => (current?.requestId === requestId ? null : current));
+            }}
           />
         </div>
       </div>
