@@ -8,13 +8,122 @@ export type VersionResponse = {
   version: string;
 };
 
-export type AirportSummary = {
-  id: string;
-  icao: string;
-  name: string;
-  location: {
-    lat: number;
-    lon: number;
-  };
+export type LatLon = {
+  lat: number;
+  lon: number;
 };
 
+export type NavDbMetadata = {
+  airacCycle: string;
+  validThrough: string;
+  dataSource: string;
+  hasSidStar: boolean;
+};
+
+export type AirportFeature = {
+  id: number;
+  ident: string;
+  icao?: string | null;
+  name: string;
+  country?: string | null;
+  numApproaches: number;
+  longestRunwayLength: number;
+  location: LatLon;
+};
+
+export type WaypointFeature = {
+  id: number;
+  ident: string;
+  name?: string | null;
+  waypointType?: string | null;
+  arincType?: string | null;
+  airportIdent?: string | null;
+  location: LatLon;
+};
+
+export type NavaidFeature = {
+  id: number;
+  ident: string;
+  name?: string | null;
+  navaidType: "vor" | "ndb";
+  facilityType?: string | null;
+  airportIdent?: string | null;
+  location: LatLon;
+};
+
+export type AirwayFeature = {
+  id: number;
+  airwayName: string;
+  airwayType: string;
+  routeType?: string | null;
+  direction?: string | null;
+  minimumAltitude?: number | null;
+  maximumAltitude?: number | null;
+  from: LatLon;
+  to: LatLon;
+};
+
+export type LayerTruncation = {
+  airports: boolean;
+  waypoints: boolean;
+  vors: boolean;
+  ndbs: boolean;
+  airways: boolean;
+};
+
+export type MapLayersResponse = {
+  metadata: NavDbMetadata;
+  airports: AirportFeature[];
+  waypoints: WaypointFeature[];
+  vors: NavaidFeature[];
+  ndbs: NavaidFeature[];
+  airways: AirwayFeature[];
+  truncation: LayerTruncation;
+};
+
+export type ProcedureKind = "sid" | "star" | "approach" | "procedure";
+
+export type ProcedureSummary = {
+  id: number;
+  airportIdent: string;
+  airportName: string;
+  name: string;
+  arincName: string;
+  procedureType: string;
+  procedureKind: ProcedureKind;
+  runwayName?: string | null;
+  legs: number;
+};
+
+export type ProcedureAirport = {
+  id: number;
+  ident: string;
+  icao?: string | null;
+  name: string;
+  location: LatLon;
+};
+
+export type AirportProceduresResponse = {
+  airport: ProcedureAirport;
+  procedures: ProcedureSummary[];
+};
+
+export type ProcedureLegPoint = {
+  ident?: string | null;
+  legType?: string | null;
+  position: LatLon;
+};
+
+export type ProcedureGeometryResponse = {
+  summary: ProcedureSummary;
+  airport: ProcedureAirport;
+  path: ProcedureLegPoint[];
+  missedPath: ProcedureLegPoint[];
+};
+
+export type Bounds = {
+  west: number;
+  south: number;
+  east: number;
+  north: number;
+};

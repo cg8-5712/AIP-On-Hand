@@ -1,17 +1,49 @@
-import { useDeferredValue, useEffect, useState } from "react";
+import type { Dispatch, SetStateAction } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { MapView } from "./features/map/MapView";
-import { getHealth, getSampleAirports, getVersion } from "./lib/api";
-import type { AirportSummary, HealthResponse, VersionResponse } from "./types/api";
+import {
+  getAirportProcedures,
+  getHealth,
+  getMapLayers,
+  getProcedureGeometry,
+  getVersion,
+} from "./lib/api";
+import type {
+  AirportFeature,
+  AirportProceduresResponse,
+  Bounds,
+  HealthResponse,
+  MapLayersResponse,
+  ProcedureGeometryResponse,
+  ProcedureSummary,
+  VersionResponse,
+} from "./types/api";
 
 type BootstrapState = {
   health?: HealthResponse;
   version?: VersionResponse;
-  airports: AirportSummary[];
   error?: string;
 };
 
-const initialState: BootstrapState = {
-  airports: [],
+type LayerVisibility = {
+  airports: boolean;
+  waypoints: boolean;
+  vors: boolean;
+  ndbs: boolean;
+  airways: boolean;
+};
+
+type ViewportState = {
+  bounds: Bounds;
+  zoom: number;
+};
+
+const initialVisibility: LayerVisibility = {
+  airports: true,
+  waypoints: false,
+  vors: true,
+  ndbs: false,
+  airways: true,
 };
 
 const panelClass =
@@ -23,101 +55,210 @@ const statusCardBaseClass =
   "flex items-center justify-between rounded-[14px] border border-slate-300/12 px-4 py-3";
 
 export default function App() {
-  const [state, setState] = useState<BootstrapState>(initialState);
-  const [query, setQuery] = useState("");
-  const [showAirports, setShowAirports] = useState(true);
-  const [showRoute, setShowRoute] = useState(true);
-  const [selectedAirportId, setSelectedAirportId] = useState<string | null>(null);
-  const deferredQuery = useDeferredValue(query);
+  const [bootstrap, setBootstrap] = useState<BootstrapState>({});
+  const [layers, setLayers] = useState<MapLayersResponse | null>(null);
+  const [layerError, setLayerError] = useState<string | null>(null);
+  const [viewport, setViewport] = useState<ViewportState | null>(null);
+  const [visibility, setVisibility] = useState<LayerVisibility>(initialVisibility);
+  const [airportFilter, setAirportFilter] = useState("");
+  const [selectedAirportIdent, setSelectedAirportIdent] = useState<string | null>(null);
+  const [airportProcedures, setAirportProcedures] = useState<AirportProceduresResponse | null>(null);
+  const [procedureError, setProcedureError] = useState<string | null>(null);
+  const [selectedProcedureId, setSelectedProcedureId] = useState<number | null>(null);
+  const [selectedProcedureGeometry, setSelectedProcedureGeometry] =
+    useState<ProcedureGeometryResponse | null>(null);
+  const deferredAirportFilter = useDeferredValue(airportFilter);
 
   useEffect(() => {
     let active = true;
 
-    async function load() {
+    async function loadBootstrap() {
       try {
-        const [health, version, airports] = await Promise.all([
-          getHealth(),
-          getVersion(),
-          getSampleAirports(),
-        ]);
+        const [health, version] = await Promise.all([getHealth(), getVersion()]);
 
         if (!active) {
           return;
         }
 
-        setState({
+        setBootstrap({
           health,
           version,
-          airports,
         });
       } catch (error) {
         if (!active) {
           return;
         }
 
-        const message = error instanceof Error ? error.message : "Unknown bootstrap failure";
-        setState({
-          airports: [],
-          error: message,
+        setBootstrap({
+          error: error instanceof Error ? error.message : "Unknown bootstrap failure",
         });
       }
     }
 
-    load();
+    loadBootstrap();
 
     return () => {
       active = false;
     };
   }, []);
 
-  const normalizedQuery = deferredQuery.trim().toLowerCase();
-
-  const filteredAirports = state.airports.filter((airport) => {
-    if (!normalizedQuery) {
-      return true;
+  useEffect(() => {
+    if (!viewport) {
+      return;
     }
 
-    return (
-      airport.icao.toLowerCase().includes(normalizedQuery) ||
-      airport.name.toLowerCase().includes(normalizedQuery)
-    );
-  });
+    const controller = new AbortController();
+    setLayerError(null);
 
-  const activeAirportId =
-    filteredAirports.some((airport) => airport.id === selectedAirportId)
-      ? selectedAirportId
-      : filteredAirports[0]?.id ?? null;
+    getMapLayers(viewport.bounds, {
+      zoom: viewport.zoom,
+      ...visibility,
+      signal: controller.signal,
+    })
+      .then((response) => {
+        setLayers(response);
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) {
+          return;
+        }
 
-  const routePreview = filteredAirports.map((airport) => airport.icao).join("  ->  ");
+        setLayerError(error instanceof Error ? error.message : "Failed to load map layers");
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [viewport, visibility]);
+
+  useEffect(() => {
+    if (!layers || layers.airports.length === 0) {
+      setSelectedAirportIdent(null);
+      return;
+    }
+
+    if (!selectedAirportIdent || !layers.airports.some((airport) => airport.ident === selectedAirportIdent)) {
+      setSelectedAirportIdent(layers.airports[0].ident);
+    }
+  }, [layers, selectedAirportIdent]);
+
+  useEffect(() => {
+    if (!selectedAirportIdent) {
+      setAirportProcedures(null);
+      setSelectedProcedureId(null);
+      setSelectedProcedureGeometry(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    setProcedureError(null);
+
+    getAirportProcedures(selectedAirportIdent, { signal: controller.signal })
+      .then((response) => {
+        setAirportProcedures(response);
+        setSelectedProcedureId((current) =>
+          current && response.procedures.some((procedure) => procedure.id === current)
+            ? current
+            : response.procedures[0]?.id ?? null,
+        );
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setProcedureError(error instanceof Error ? error.message : "Failed to load procedures");
+        setAirportProcedures(null);
+        setSelectedProcedureId(null);
+        setSelectedProcedureGeometry(null);
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [selectedAirportIdent]);
+
+  useEffect(() => {
+    if (!selectedProcedureId) {
+      setSelectedProcedureGeometry(null);
+      return;
+    }
+
+    const controller = new AbortController();
+
+    getProcedureGeometry(selectedProcedureId, { signal: controller.signal })
+      .then((response) => {
+        setSelectedProcedureGeometry(response);
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setProcedureError(error instanceof Error ? error.message : "Failed to load procedure geometry");
+        setSelectedProcedureGeometry(null);
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [selectedProcedureId]);
+
+  const visibleAirports = useMemo(() => {
+    const airports = layers?.airports ?? [];
+    const normalizedFilter = deferredAirportFilter.trim().toLowerCase();
+
+    if (!normalizedFilter) {
+      return airports;
+    }
+
+    return airports.filter((airport) => {
+      return (
+        airport.ident.toLowerCase().includes(normalizedFilter) ||
+        airport.name.toLowerCase().includes(normalizedFilter) ||
+        airport.icao?.toLowerCase().includes(normalizedFilter)
+      );
+    });
+  }, [deferredAirportFilter, layers]);
+
+  const selectedAirport = useMemo(() => {
+    const byVisibleList = layers?.airports.find((airport) => airport.ident === selectedAirportIdent);
+    if (byVisibleList) {
+      return byVisibleList;
+    }
+
+    if (!airportProcedures) {
+      return null;
+    }
+
+    const airport = airportProcedures.airport;
+    return {
+      id: airport.id,
+      ident: airport.ident,
+      icao: airport.icao,
+      name: airport.name,
+      country: null,
+      numApproaches: airportProcedures.procedures.length,
+      longestRunwayLength: 0,
+      location: airport.location,
+    } satisfies AirportFeature;
+  }, [airportProcedures, layers, selectedAirportIdent]);
+
+  const procedureMetadata = layers?.metadata;
+  const selectedProcedureSummary = selectedProcedureGeometry?.summary;
 
   return (
-    <div className="grid min-h-screen md:grid-cols-[minmax(300px,360px)_1fr]">
+    <div className="grid min-h-screen md:grid-cols-[minmax(340px,420px)_1fr]">
       <aside className="flex flex-col gap-4 border-b border-slate-300/18 bg-slate-950/85 p-5 backdrop-blur md:border-r md:border-b-0">
         <div className={`${panelClass} pt-[1.1rem]`}>
           <p className="mb-1 text-[0.72rem] font-bold uppercase tracking-[0.16em] text-sky-200">
-            Phase 0 Skeleton
+            Live Navdata Shell
           </p>
           <h1 className="m-0 text-[2rem] font-bold text-slate-50">AIP On Hand</h1>
           <p className="m-0 mt-2 leading-6 text-slate-300">
-            Browser-first aviation planning shell with a Rust service boundary and a Leaflet map
-            surface.
+            SQLite-backed map layers from Little Navmap Navigraph data, with airport procedure
+            selection and highlight flow.
           </p>
-        </div>
-
-        <div className={panelClass}>
-          <p className={sectionTitleClass}>Fixture Filter</p>
-          <label className="mt-3 grid gap-2 text-[0.82rem] text-slate-400" htmlFor="airport-filter">
-            <span>Search fixtures</span>
-            <input
-              id="airport-filter"
-              name="airport-filter"
-              type="search"
-              placeholder="ICAO or airport name"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              className="w-full rounded-[14px] border border-slate-300/20 bg-slate-950/90 px-4 py-3 text-slate-50 outline-none transition duration-200 placeholder:text-slate-500 focus-visible:border-emerald-500/70 focus-visible:ring-[3px] focus-visible:ring-emerald-500/15 motion-reduce:transition-none"
-            />
-          </label>
         </div>
 
         <div className={panelClass}>
@@ -125,96 +266,187 @@ export default function App() {
           <div className="mt-3 grid gap-3">
             <StatusCard
               label="Health"
-              value={state.health ? state.health.status : "pending"}
-              tone={state.health?.status === "ok" ? "good" : "muted"}
+              value={bootstrap.health ? bootstrap.health.status : "pending"}
+              tone={bootstrap.health?.status === "ok" ? "good" : "muted"}
             />
             <StatusCard
               label="Service"
-              value={state.version?.service ?? "unreachable"}
-              tone={state.version ? "good" : "muted"}
+              value={bootstrap.version?.service ?? "unreachable"}
+              tone={bootstrap.version ? "good" : "muted"}
             />
             <StatusCard
               label="Version"
-              value={state.version?.version ?? "n/a"}
-              tone={state.version ? "good" : "muted"}
+              value={bootstrap.version?.version ?? "n/a"}
+              tone={bootstrap.version ? "good" : "muted"}
             />
             <StatusCard
-              label="Visible airports"
-              value={String(filteredAirports.length)}
-              tone={filteredAirports.length > 0 ? "good" : "muted"}
+              label="AIRAC"
+              value={procedureMetadata?.airacCycle ?? "loading"}
+              tone={procedureMetadata ? "good" : "muted"}
             />
           </div>
-          {state.error ? <p className="mt-3 leading-6 text-rose-300">{state.error}</p> : null}
+          {bootstrap.error ? <p className="mt-3 leading-6 text-rose-300">{bootstrap.error}</p> : null}
+          {layerError ? <p className="mt-3 leading-6 text-rose-300">{layerError}</p> : null}
         </div>
 
         <div className={panelClass}>
           <div className="flex items-baseline justify-between gap-3">
             <p className={sectionTitleClass}>Layers</p>
             <span className="text-[0.78rem] uppercase tracking-[0.08em] text-slate-500">
-              Phase 0 toggles
+              Visible toggles
             </span>
           </div>
           <div className="mt-3 flex flex-wrap gap-3">
             <LayerToggle
               label="Airports"
-              isActive={showAirports}
-              onClick={() => setShowAirports((value) => !value)}
+              isActive={visibility.airports}
+              onClick={() => toggleLayer(setVisibility, "airports")}
             />
             <LayerToggle
-              label="Route"
-              isActive={showRoute}
-              onClick={() => setShowRoute((value) => !value)}
+              label="Waypoints"
+              isActive={visibility.waypoints}
+              onClick={() => toggleLayer(setVisibility, "waypoints")}
+            />
+            <LayerToggle
+              label="VOR"
+              isActive={visibility.vors}
+              onClick={() => toggleLayer(setVisibility, "vors")}
+            />
+            <LayerToggle
+              label="NDB"
+              isActive={visibility.ndbs}
+              onClick={() => toggleLayer(setVisibility, "ndbs")}
+            />
+            <LayerToggle
+              label="Airways"
+              isActive={visibility.airways}
+              onClick={() => toggleLayer(setVisibility, "airways")}
             />
           </div>
         </div>
 
         <div className={panelClass}>
-          <p className={sectionTitleClass}>Map Fixture</p>
-          <ul className="mt-3 grid list-none gap-3 p-0">
-            {filteredAirports.map((airport) => (
+          <div className="flex items-baseline justify-between gap-3">
+            <p className={sectionTitleClass}>Visible Data</p>
+            <span className="text-[0.78rem] uppercase tracking-[0.08em] text-slate-500">
+              Current viewport
+            </span>
+          </div>
+          <div className="mt-3 grid gap-3">
+            <StatusCard label="Airports" value={String(layers?.airports.length ?? 0)} tone="good" />
+            <StatusCard label="Waypoints" value={String(layers?.waypoints.length ?? 0)} tone="muted" />
+            <StatusCard label="VOR" value={String(layers?.vors.length ?? 0)} tone="muted" />
+            <StatusCard label="NDB" value={String(layers?.ndbs.length ?? 0)} tone="muted" />
+            <StatusCard label="Airways" value={String(layers?.airways.length ?? 0)} tone="muted" />
+          </div>
+          {renderTruncationNotice(layers)}
+        </div>
+
+        <div className={panelClass}>
+          <p className={sectionTitleClass}>Visible Airports</p>
+          <label className="mt-3 grid gap-2 text-[0.82rem] text-slate-400" htmlFor="airport-filter">
+            <span>Filter current viewport</span>
+            <input
+              id="airport-filter"
+              name="airport-filter"
+              type="search"
+              placeholder="ICAO, ident, or airport name"
+              value={airportFilter}
+              onChange={(event) => setAirportFilter(event.target.value)}
+              className="w-full rounded-[14px] border border-slate-300/20 bg-slate-950/90 px-4 py-3 text-slate-50 outline-none transition duration-200 placeholder:text-slate-500 focus-visible:border-emerald-500/70 focus-visible:ring-[3px] focus-visible:ring-emerald-500/15 motion-reduce:transition-none"
+            />
+          </label>
+          <ul className="mt-3 grid max-h-[20rem] list-none gap-3 overflow-y-auto pr-1">
+            {visibleAirports.slice(0, 40).map((airport) => (
               <li key={airport.id} className="m-0">
                 <button
                   className={
                     `grid w-full cursor-pointer gap-1 rounded-[14px] border px-4 py-3 text-left transition duration-200 motion-reduce:transition-none ` +
-                    (airport.id === activeAirportId
+                    (airport.ident === selectedAirportIdent
                       ? "border-emerald-500/55 bg-emerald-950/60 text-slate-100"
                       : "border-slate-300/12 bg-sky-950/45 text-slate-300 hover:border-cyan-300/35 hover:bg-sky-950/75")
                   }
                   type="button"
-                  onClick={() => setSelectedAirportId(airport.id)}
+                  onClick={() => setSelectedAirportIdent(airport.ident)}
                   aria-label={airport.name}
                 >
-                  <strong className="font-mono text-[0.92rem] text-amber-300">{airport.icao}</strong>
+                  <strong className="font-mono text-[0.92rem] text-amber-300">
+                    {airport.ident}
+                    {airport.icao ? ` | ${airport.icao}` : ""}
+                  </strong>
                   <span>{airport.name}</span>
                 </button>
               </li>
             ))}
-            {filteredAirports.length === 0 ? (
-              <li className="m-0 leading-6 text-slate-300">
-                No fixture airports match the current filter.
-              </li>
+            {visibleAirports.length === 0 ? (
+              <li className="m-0 leading-6 text-slate-300">No visible airports match the current filter.</li>
             ) : null}
           </ul>
         </div>
 
         <div className={panelClass}>
           <div className="flex items-baseline justify-between gap-3">
-            <p className={sectionTitleClass}>Route Strip</p>
+            <p className={sectionTitleClass}>Selected Airport</p>
             <span className="text-[0.78rem] uppercase tracking-[0.08em] text-slate-500">
-              Preview
+              Procedures
             </span>
           </div>
-          <p className="mt-3 break-words font-mono leading-7 text-cyan-300">
-            {routePreview || "Waiting for route fixture data."}
-          </p>
+          {selectedAirport ? (
+            <div className="mt-3 grid gap-3">
+              <div className="rounded-[14px] border border-slate-300/12 bg-slate-900/80 px-4 py-3">
+                <p className="m-0 font-mono text-sm text-amber-300">
+                  {selectedAirport.ident}
+                  {selectedAirport.icao ? ` | ${selectedAirport.icao}` : ""}
+                </p>
+                <p className="m-0 mt-1 text-slate-100">{selectedAirport.name}</p>
+                <p className="m-0 mt-1 text-sm text-slate-400">
+                  {selectedAirport.location.lat.toFixed(4)}, {selectedAirport.location.lon.toFixed(4)}
+                </p>
+              </div>
+
+              <div className="grid gap-2">
+                {(airportProcedures?.procedures ?? []).slice(0, 60).map((procedure) => (
+                  <ProcedureButton
+                    key={procedure.id}
+                    procedure={procedure}
+                    isActive={procedure.id === selectedProcedureId}
+                    onClick={() => setSelectedProcedureId(procedure.id)}
+                  />
+                ))}
+                {airportProcedures?.procedures.length === 0 ? (
+                  <p className="m-0 leading-6 text-slate-300">No procedures were returned for this airport.</p>
+                ) : null}
+              </div>
+            </div>
+          ) : (
+            <p className="mt-3 m-0 leading-6 text-slate-300">Move the map or select a visible airport to inspect procedures.</p>
+          )}
+          {procedureError ? <p className="mt-3 leading-6 text-rose-300">{procedureError}</p> : null}
         </div>
 
         <div className={panelClass}>
-          <p className={sectionTitleClass}>Immediate Next Slice</p>
+          <p className={sectionTitleClass}>Highlight Notes</p>
           <p className="m-0 mt-3 leading-6 text-slate-300">
-            Replace the fixture endpoint with canonical airport and waypoint DTOs, then move the
-            filter into a Rust search endpoint with map-driven highlight state.
+            This database stores many procedures inside the <span className="font-mono text-slate-100">approach</span> and
+            <span className="font-mono text-slate-100"> approach_leg</span> tables. SID/STAR labels are inferred from leg
+            geometry when explicit classification is not available in the schema.
           </p>
+          {selectedProcedureSummary ? (
+            <div className="mt-3 rounded-[14px] border border-slate-300/12 bg-slate-900/80 px-4 py-3">
+              <p className="m-0 text-slate-100">
+                <span className="font-semibold">{selectedProcedureSummary.name}</span>
+                {" | "}
+                {selectedProcedureSummary.procedureKind.toUpperCase()}
+              </p>
+              <p className="m-0 mt-1 text-sm text-slate-400">
+                {selectedProcedureSummary.procedureType}
+                {selectedProcedureSummary.runwayName
+                  ? ` | RWY ${selectedProcedureSummary.runwayName}`
+                  : ""}
+                {` | ${selectedProcedureSummary.legs} legs`}
+              </p>
+            </div>
+          ) : null}
         </div>
       </aside>
 
@@ -222,25 +454,57 @@ export default function App() {
         <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-end">
           <div>
             <p className="mb-1 text-[0.72rem] font-bold uppercase tracking-[0.16em] text-sky-200">
-              Leaflet + OpenStreetMap Basemap
+              Leaflet + SQLite Navigraph
             </p>
-            <h2 className="m-0 text-2xl font-bold text-slate-50">Map Surface</h2>
+            <h2 className="m-0 text-2xl font-bold text-slate-50">Operational Map Surface</h2>
           </div>
-          <p className="m-0 max-w-[28rem] leading-6 text-slate-300 md:text-right">
-            The basemap stays generic. Aviation entities render as separate overlays from the Rust
-            API.
+          <p className="m-0 max-w-[36rem] leading-6 text-slate-300 md:text-right">
+            Airports, airways, waypoints, VOR, and NDB now load from the real SQLite navdata file.
+            Procedure selection highlights the decoded geometry path on top of the live map.
           </p>
         </div>
 
         <MapView
-          airports={filteredAirports}
-          highlightedAirportId={activeAirportId}
-          showAirports={showAirports}
-          showRoute={showRoute}
+          layers={layers}
+          selectedAirportIdent={selectedAirportIdent}
+          selectedProcedure={selectedProcedureGeometry}
+          visibility={visibility}
+          onViewportChange={setViewport}
+          onAirportSelect={setSelectedAirportIdent}
         />
       </main>
     </div>
   );
+}
+
+function renderTruncationNotice(layers: MapLayersResponse | null) {
+  if (!layers) {
+    return null;
+  }
+
+  const truncated = Object.entries(layers.truncation)
+    .filter(([, value]) => value)
+    .map(([key]) => key);
+
+  if (truncated.length === 0) {
+    return null;
+  }
+
+  return (
+    <p className="mt-3 m-0 leading-6 text-amber-200">
+      Visible result limits were reached for: {truncated.join(", ")}. Zoom in for denser detail.
+    </p>
+  );
+}
+
+function toggleLayer(
+  setVisibility: Dispatch<SetStateAction<LayerVisibility>>,
+  key: keyof LayerVisibility,
+) {
+  setVisibility((current) => ({
+    ...current,
+    [key]: !current[key],
+  }));
 }
 
 type StatusCardProps = {
@@ -250,8 +514,7 @@ type StatusCardProps = {
 };
 
 function StatusCard({ label, value, tone }: StatusCardProps) {
-  const toneClass =
-    tone === "good" ? "bg-cyan-950/45" : "bg-slate-900/75";
+  const toneClass = tone === "good" ? "bg-cyan-950/45" : "bg-slate-900/75";
 
   return (
     <div className={`${statusCardBaseClass} ${toneClass}`}>
@@ -281,6 +544,44 @@ function LayerToggle({ label, isActive, onClick }: LayerToggleProps) {
       aria-pressed={isActive}
     >
       {label}
+    </button>
+  );
+}
+
+type ProcedureButtonProps = {
+  procedure: ProcedureSummary;
+  isActive: boolean;
+  onClick: () => void;
+};
+
+function ProcedureButton({ procedure, isActive, onClick }: ProcedureButtonProps) {
+  const kindTone = {
+    sid: "text-emerald-300",
+    star: "text-sky-300",
+    approach: "text-amber-300",
+    procedure: "text-fuchsia-300",
+  }[procedure.procedureKind];
+
+  return (
+    <button
+      className={
+        `grid w-full cursor-pointer gap-1 rounded-[14px] border px-4 py-3 text-left transition duration-200 motion-reduce:transition-none ` +
+        (isActive
+          ? "border-cyan-300/45 bg-cyan-950/50 text-slate-100"
+          : "border-slate-300/12 bg-slate-900/80 text-slate-300 hover:border-cyan-300/35 hover:bg-slate-900")
+      }
+      type="button"
+      onClick={onClick}
+      aria-label={procedure.name}
+    >
+      <span className={`font-mono text-[0.9rem] ${kindTone}`}>{procedure.name}</span>
+      <span className="text-sm text-slate-200">
+        {procedure.procedureKind.toUpperCase()} | {procedure.procedureType}
+        {procedure.runwayName ? ` | RWY ${procedure.runwayName}` : ""}
+      </span>
+      <span className="text-xs text-slate-500">
+        {procedure.airportIdent} | {procedure.legs} legs
+      </span>
     </button>
   );
 }

@@ -62,11 +62,12 @@ Unless a later decision overrides it, the recommended starting baseline is:
 
 ## Current Phase 0 Scaffold
 
-The repository now includes a minimal browser-mode skeleton for the first implementation slice:
+The repository now includes a browser-mode skeleton backed by the local Little Navmap Navigraph
+SQLite database:
 
-- `crates/api`: Rust `actix-web` service with `/api/v1/health`, `/api/v1/version`, and a sample airport fixture endpoint
-- `crates/domain`: initial canonical `LatLon` and `AirportSummary` models
-- `apps/web`: React + TypeScript + Vite shell with Tailwind CSS, a Leaflet map, and a backend status panel
+- `crates/api`: Rust `actix-web` service with viewport-based map layer endpoints and airport procedure endpoints
+- `crates/domain`: canonical map, navaid, airway, and procedure response models
+- `apps/web`: React + TypeScript + Vite shell with Tailwind CSS, a Leaflet map, live layer toggles, and procedure highlight flow
 
 ## Local Run
 
@@ -75,6 +76,7 @@ The repository now includes a minimal browser-mode skeleton for the first implem
 - Rust toolchain
 - Node.js
 - Yarn Classic (`1.22.x`)
+- local navdata file at `D:\little_navmap_navigraph.sqlite`, or set `AIP_NAVDB_PATH` to another path
 
 ### Start the API
 
@@ -83,6 +85,14 @@ cargo run -p aip-api
 ```
 
 The API defaults to `http://127.0.0.1:8080`.
+The navdata path defaults to `D:\little_navmap_navigraph.sqlite`.
+
+To override it:
+
+```bash
+set AIP_NAVDB_PATH=D:\path\to\little_navmap_navigraph.sqlite
+cargo run -p aip-api
+```
 
 ### Start the Web App
 
@@ -116,6 +126,7 @@ yarn test
 The web test suite uses Vitest with React Testing Library and currently covers:
 
 - bootstrap rendering against mocked API responses
+- viewport-driven layer loading
 - airport filtering behavior
-- layer toggle and selection state flowing into the map shell
-- bootstrap failure handling
+- procedure selection driving the highlighted geometry state
+- layer toggle state flowing back into map-layer requests
