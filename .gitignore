@@ -1,0 +1,14 @@
+node_modules/
+dist/
+target/
+.DS_Store
+Thumbs.db
+
+# Local environment overrides
+.env
+.env.local
+.env.*.local
+
+# Local data packages and samples
+data/
+

@@ -127,7 +127,7 @@ Why it matters:
 
 If you want me to proceed before all answers are finalized, the safest defaults are:
 
-- Web API: `axum`
+- Web API: `actix-web`
 - frontend build: Vite
 - map engine: Leaflet
 - local store: SQLite

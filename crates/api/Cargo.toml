@@ -1,0 +1,15 @@
+[package]
+name = "aip-api"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+actix-cors.workspace = true
+actix-web.workspace = true
+aip-domain = { path = "../domain" }
+serde.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

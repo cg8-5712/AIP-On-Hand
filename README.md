@@ -59,3 +59,63 @@ Unless a later decision overrides it, the recommended starting baseline is:
 - SQLite as the first local structured store.
 - Commercial navigation data via OTA or manual upload.
 - Tauri v2 only after the browser workflow is stable.
+
+## Current Phase 0 Scaffold
+
+The repository now includes a minimal browser-mode skeleton for the first implementation slice:
+
+- `crates/api`: Rust `actix-web` service with `/api/v1/health`, `/api/v1/version`, and a sample airport fixture endpoint
+- `crates/domain`: initial canonical `LatLon` and `AirportSummary` models
+- `apps/web`: React + TypeScript + Vite shell with Tailwind CSS, a Leaflet map, and a backend status panel
+
+## Local Run
+
+### Prerequisites
+
+- Rust toolchain
+- Node.js
+- Yarn Classic (`1.22.x`)
+
+### Start the API
+
+```bash
+cargo run -p aip-api
+```
+
+The API defaults to `http://127.0.0.1:8080`.
+
+### Start the Web App
+
+```bash
+cd apps/web
+yarn install
+yarn dev
+```
+
+The Vite app defaults to `http://127.0.0.1:5173` and proxies `/api` requests to the Rust service.
+
+If you want the frontend to call a different API origin directly, copy `apps/web/.env.example` to
+`apps/web/.env.local` and set `VITE_API_BASE_URL`.
+
+## Tests
+
+### Rust API tests
+
+```bash
+cargo test -p aip-api
+```
+
+### Web tests
+
+```bash
+cd apps/web
+yarn install
+yarn test
+```
+
+The web test suite uses Vitest with React Testing Library and currently covers:
+
+- bootstrap rendering against mocked API responses
+- airport filtering behavior
+- layer toggle and selection state flowing into the map shell
+- bootstrap failure handling
