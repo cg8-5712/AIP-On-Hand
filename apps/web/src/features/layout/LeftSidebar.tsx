@@ -34,7 +34,7 @@ export function LeftSidebar({
   onAirportSelect,
 }: LeftSidebarProps) {
   return (
-    <aside className={`${panelClass} flex min-h-0 flex-col xl:overflow-hidden`}>
+    <aside className={`${panelClass} flex flex-col`}>
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="section-kicker">Layer Control</p>
@@ -87,7 +87,7 @@ export function LeftSidebar({
         <MiniDataTile label="VOR / NDB" value={`${layers?.vors.length ?? 0} / ${layers?.ndbs.length ?? 0}`} />
       </div>
 
-      <ul className="scroll-panel mt-4 grid min-h-[240px] flex-1 list-none gap-3 overflow-y-auto overscroll-contain pr-1 xl:min-h-0">
+      <ul className="mt-4 grid list-none gap-3 pr-1">
         {visibleAirports.slice(0, 40).map((airport) => (
           <li key={airport.id} className="m-0">
             <button

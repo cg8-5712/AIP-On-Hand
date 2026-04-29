@@ -79,7 +79,7 @@ export function ProcedurePanel({
         ))}
       </div>
 
-      <div className="scroll-panel mt-4 grid min-h-[280px] flex-1 gap-2 overflow-y-auto overscroll-contain pr-1 xl:min-h-0">
+      <div className="mt-4 grid gap-2 pr-1">
         {filteredProcedures.slice(0, 80).map((procedure) => (
           <ProcedureButton
             key={procedure.id}

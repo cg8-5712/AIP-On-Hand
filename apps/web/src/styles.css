@@ -217,6 +217,7 @@
   .scroll-panel {
     scrollbar-color: rgba(56, 189, 248, 0.42) rgba(15, 23, 42, 0.35);
     scrollbar-width: thin;
+    touch-action: pan-y;
   }
 
   .scroll-panel::-webkit-scrollbar {
