@@ -81,6 +81,12 @@ struct MapLayersQuery {
     airways: Option<bool>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchQuery {
+    q: String,
+}
+
 #[get("/api/v1/health")]
 async fn health() -> impl Responder {
     HttpResponse::Ok().json(HealthResponse {
@@ -155,6 +161,19 @@ async fn procedure_geometry(
     Ok(Json(payload))
 }
 
+#[get("/api/v1/search")]
+async fn search(
+    state: Data<AppState>,
+    query: Query<SearchQuery>,
+) -> Result<Json<aip_domain::SearchResponse>, ApiError> {
+    let payload = state
+        .nav_db
+        .search(&query.q)
+        .map_err(|error| ApiError::Internal(format!("failed to search nav database: {error}")))?;
+
+    Ok(Json(payload))
+}
+
 fn configure_logging() {
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,actix_web=info"));
@@ -212,6 +231,7 @@ async fn main() -> io::Result<()> {
             .service(map_layers)
             .service(airport_procedures)
             .service(procedure_geometry)
+            .service(search)
     })
     .bind(bind_address)?
     .run()

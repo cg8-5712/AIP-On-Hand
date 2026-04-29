@@ -1,7 +1,8 @@
 use aip_domain::{
     AirportFeature, AirportProceduresResponse, AirwayFeature, LatLon, LayerTruncation,
     MapLayersResponse, NavDbMetadata, NavaidFeature, ProcedureAirport, ProcedureGeometryResponse,
-    ProcedureKind, ProcedureLegPoint, ProcedureSummary, WaypointFeature,
+    ProcedureKind, ProcedureLegPoint, ProcedureSummary, SearchEntityType, SearchResponse,
+    SearchResultItem, WaypointFeature,
 };
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Result};
 use std::path::{Path, PathBuf};
@@ -11,6 +12,7 @@ const WAYPOINT_LIMIT: i64 = 1200;
 const VOR_LIMIT: i64 = 500;
 const NDB_LIMIT: i64 = 400;
 const AIRWAY_LIMIT: i64 = 1500;
+const SEARCH_LIMIT: i64 = 60;
 
 const MIN_AIRWAY_ZOOM: i64 = 4;
 const MIN_NAVAID_ZOOM: i64 = 5;
@@ -156,6 +158,41 @@ impl NavDb {
         }))
     }
 
+    pub fn search(&self, raw_query: &str) -> Result<SearchResponse> {
+        let query = raw_query.trim();
+        if query.is_empty() {
+            return Ok(SearchResponse {
+                query: String::new(),
+                results: Vec::new(),
+            });
+        }
+
+        let connection = self.connect()?;
+        let pattern = format!("%{}%", query.to_uppercase());
+
+        let mut results = Vec::new();
+        results.extend(search_airports(&connection, &pattern, SEARCH_LIMIT / 3)?);
+        results.extend(search_nav_entities(&connection, &pattern, SEARCH_LIMIT / 2)?);
+        results.extend(search_airways(&connection, &pattern, SEARCH_LIMIT / 4)?);
+        results.extend(search_procedures(&connection, &pattern, SEARCH_LIMIT)?);
+
+        results.sort_by(|left, right| {
+            let left_rank = search_rank(left, query);
+            let right_rank = search_rank(right, query);
+            left_rank
+                .cmp(&right_rank)
+                .then_with(|| left.ident.cmp(&right.ident))
+                .then_with(|| left.name.cmp(&right.name))
+        });
+        results.dedup_by(|left, right| left.id == right.id);
+        results.truncate(SEARCH_LIMIT as usize);
+
+        Ok(SearchResponse {
+            query: query.to_string(),
+            results,
+        })
+    }
+
     fn connect(&self) -> Result<Connection> {
         open_read_only(&self.path)
     }
@@ -171,6 +208,7 @@ struct ProcedureRow {
     approach_id: i64,
     arinc_name: String,
     procedure_type: String,
+    suffix: Option<String>,
     runway_name: Option<String>,
     fix_ident: Option<String>,
     legs: usize,
@@ -517,12 +555,13 @@ fn map_procedure_row(row: &rusqlite::Row<'_>) -> Result<ProcedureRow> {
         procedure_type: row
             .get::<_, Option<String>>(8)?
             .unwrap_or_else(|| "UNKNOWN".to_string()),
-        runway_name: row.get(9)?,
-        fix_ident: row.get(10)?,
-        legs: row.get::<_, i64>(11)? as usize,
-        has_missed: row.get::<_, i64>(12)? != 0,
-        first_position: lat_lon_from_optional(row.get(13)?, row.get(14)?),
-        last_position: lat_lon_from_optional(row.get(15)?, row.get(16)?),
+        suffix: row.get(9)?,
+        runway_name: row.get(10)?,
+        fix_ident: row.get(11)?,
+        legs: row.get::<_, i64>(12)? as usize,
+        has_missed: row.get::<_, i64>(13)? != 0,
+        first_position: lat_lon_from_optional(row.get(14)?, row.get(15)?),
+        last_position: lat_lon_from_optional(row.get(16)?, row.get(17)?),
     })
 }
 
@@ -578,6 +617,7 @@ fn query_procedure_legs(
 fn procedure_summary_from_row(row: &ProcedureRow) -> ProcedureSummary {
     let procedure_kind = classify_procedure_kind(
         &row.procedure_type,
+        row.suffix.as_deref(),
         row.first_position,
         row.last_position,
         row.airport_location,
@@ -632,11 +672,24 @@ fn procedure_display_name(
 
 fn classify_procedure_kind(
     procedure_type: &str,
+    suffix: Option<&str>,
     first_position: Option<LatLon>,
     last_position: Option<LatLon>,
     airport_location: LatLon,
     has_missed: bool,
 ) -> ProcedureKind {
+    if procedure_type.eq_ignore_ascii_case("GPS") {
+        if let Some(suffix) = suffix.map(str::trim).filter(|suffix| !suffix.is_empty()) {
+            if suffix.eq_ignore_ascii_case("D") {
+                return ProcedureKind::Sid;
+            }
+
+            if suffix.eq_ignore_ascii_case("A") {
+                return ProcedureKind::Star;
+            }
+        }
+    }
+
     if has_missed || !procedure_type.eq_ignore_ascii_case("GPS") {
         return ProcedureKind::Approach;
     }
@@ -656,6 +709,357 @@ fn classify_procedure_kind(
         }
         _ => ProcedureKind::Procedure,
     }
+}
+
+fn search_airports(connection: &Connection, pattern: &str, limit: i64) -> Result<Vec<SearchResultItem>> {
+    let mut statement = connection.prepare(
+        "
+        select
+          airport_id,
+          ident,
+          nullif(trim(icao), ''),
+          name,
+          lonx,
+          laty
+        from airport
+        where
+          is_closed = 0
+          and (
+            upper(ident) like ?1
+            or upper(coalesce(icao, '')) like ?1
+            or upper(name) like ?1
+          )
+        order by
+          case
+            when upper(ident) = ?2 then 0
+            when upper(coalesce(icao, '')) = ?2 then 1
+            when upper(ident) like ?3 then 2
+            else 3
+          end,
+          num_approach desc,
+          ident asc
+        limit ?4
+        ",
+    )?;
+
+    let starts_with = format!("{}%", pattern.trim_matches('%'));
+    let exact = pattern.trim_matches('%').to_string();
+    let rows = statement.query_map(params![pattern, exact, starts_with, limit], |row| {
+        let ident = row.get::<_, String>(1)?;
+        let icao = row.get::<_, Option<String>>(2)?;
+        Ok(SearchResultItem {
+            id: format!("airport:{}", row.get::<_, i64>(0)?),
+            entity_type: SearchEntityType::Airport,
+            ident,
+            name: row.get(3)?,
+            airport_ident: icao,
+            airport_name: None,
+            procedure_id: None,
+            procedure_kind: None,
+            procedure_type: None,
+            runway_name: None,
+            airway_type: None,
+            location: Some(LatLon {
+                lon: row.get(4)?,
+                lat: row.get(5)?,
+            }),
+            from: None,
+            to: None,
+        })
+    })?;
+
+    rows.collect()
+}
+
+fn search_nav_entities(
+    connection: &Connection,
+    pattern: &str,
+    limit: i64,
+) -> Result<Vec<SearchResultItem>> {
+    let mut statement = connection.prepare(
+        "
+        select
+          nav_search_id,
+          airport_id,
+          nullif(trim(airport_ident), ''),
+          ident,
+          nullif(trim(name), ''),
+          nav_type,
+          lonx,
+          laty
+        from nav_search
+        where
+          (
+            upper(ident) like ?1
+            or upper(coalesce(name, '')) like ?1
+            or upper(coalesce(airport_ident, '')) like ?1
+          )
+          and nav_type in ('W', 'V', 'VD', 'VT', 'N', 'D')
+        order by
+          case
+            when upper(ident) = ?2 then 0
+            when upper(ident) like ?3 then 1
+            else 2
+          end,
+          ident asc
+        limit ?4
+        ",
+    )?;
+
+    let starts_with = format!("{}%", pattern.trim_matches('%'));
+    let exact = pattern.trim_matches('%').to_string();
+    let rows = statement.query_map(params![pattern, exact, starts_with, limit], |row| {
+        let nav_type = row.get::<_, Option<String>>(5)?.unwrap_or_default();
+        let entity_type = match nav_type.as_str() {
+            "W" => SearchEntityType::Waypoint,
+            "V" | "VD" | "VT" | "D" => SearchEntityType::Vor,
+            "N" => SearchEntityType::Ndb,
+            _ => SearchEntityType::Waypoint,
+        };
+
+        Ok(SearchResultItem {
+            id: format!("nav:{}", row.get::<_, i64>(0)?),
+            entity_type,
+            ident: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+            name: row.get(4)?,
+            airport_ident: row.get(2)?,
+            airport_name: None,
+            procedure_id: None,
+            procedure_kind: None,
+            procedure_type: None,
+            runway_name: None,
+            airway_type: None,
+            location: Some(LatLon {
+                lon: row.get(6)?,
+                lat: row.get(7)?,
+            }),
+            from: None,
+            to: None,
+        })
+    })?;
+
+    rows.collect()
+}
+
+fn search_airways(connection: &Connection, pattern: &str, limit: i64) -> Result<Vec<SearchResultItem>> {
+    let mut statement = connection.prepare(
+        "
+        select
+          airway_id,
+          airway_name,
+          airway_type,
+          from_lonx,
+          from_laty,
+          to_lonx,
+          to_laty
+        from airway
+        where upper(airway_name) like ?1
+        group by airway_name, airway_type, from_lonx, from_laty, to_lonx, to_laty
+        order by
+          case
+            when upper(airway_name) = ?2 then 0
+            when upper(airway_name) like ?3 then 1
+            else 2
+          end,
+          airway_name asc
+        limit ?4
+        ",
+    )?;
+
+    let starts_with = format!("{}%", pattern.trim_matches('%'));
+    let exact = pattern.trim_matches('%').to_string();
+    let rows = statement.query_map(params![pattern, exact, starts_with, limit], |row| {
+        Ok(SearchResultItem {
+            id: format!("airway:{}", row.get::<_, i64>(0)?),
+            entity_type: SearchEntityType::Airway,
+            ident: row.get(1)?,
+            name: None,
+            airport_ident: None,
+            airport_name: None,
+            procedure_id: None,
+            procedure_kind: None,
+            procedure_type: None,
+            runway_name: None,
+            airway_type: row.get(2)?,
+            location: None,
+            from: Some(LatLon {
+                lon: row.get(3)?,
+                lat: row.get(4)?,
+            }),
+            to: Some(LatLon {
+                lon: row.get(5)?,
+                lat: row.get(6)?,
+            }),
+        })
+    })?;
+
+    rows.collect()
+}
+
+fn search_procedures(connection: &Connection, pattern: &str, limit: i64) -> Result<Vec<SearchResultItem>> {
+    let mut statement = connection.prepare(
+        "
+        select
+          ap.airport_id,
+          ap.ident,
+          ap.name,
+          ap.lonx,
+          ap.laty,
+          a.approach_id,
+          coalesce(a.arinc_name, ''),
+          coalesce(a.type, ''),
+          nullif(trim(a.suffix), ''),
+          nullif(trim(a.runway_name), ''),
+          nullif(trim(a.fix_ident), ''),
+          (
+            select count(*)
+            from approach_leg al
+            where
+              al.approach_id = a.approach_id
+              and al.is_missed = 1
+              and al.fix_lonx is not null
+              and al.fix_laty is not null
+          ) as has_missed,
+          (
+            select al.fix_lonx
+            from approach_leg al
+            where
+              al.approach_id = a.approach_id
+              and al.fix_lonx is not null
+              and al.fix_laty is not null
+            order by al.approach_leg_id asc
+            limit 1
+          ) as first_lonx,
+          (
+            select al.fix_laty
+            from approach_leg al
+            where
+              al.approach_id = a.approach_id
+              and al.fix_lonx is not null
+              and al.fix_laty is not null
+            order by al.approach_leg_id asc
+            limit 1
+          ) as first_laty,
+          (
+            select al.fix_lonx
+            from approach_leg al
+            where
+              al.approach_id = a.approach_id
+              and al.fix_lonx is not null
+              and al.fix_laty is not null
+              and al.is_missed = 0
+            order by al.approach_leg_id desc
+            limit 1
+          ) as last_lonx,
+          (
+            select al.fix_laty
+            from approach_leg al
+            where
+              al.approach_id = a.approach_id
+              and al.fix_lonx is not null
+              and al.fix_laty is not null
+              and al.is_missed = 0
+            order by al.approach_leg_id desc
+            limit 1
+          ) as last_laty
+        from approach a
+        join airport ap on ap.airport_id = a.airport_id
+        where
+          upper(coalesce(a.fix_ident, '')) like ?1
+          or upper(coalesce(a.arinc_name, '')) like ?1
+          or upper(ap.ident) like ?1
+          or upper(ap.name) like ?1
+        order by
+          case
+            when upper(coalesce(a.fix_ident, '')) = ?2 then 0
+            when upper(coalesce(a.fix_ident, '')) like ?3 then 1
+            when upper(coalesce(a.arinc_name, '')) = ?2 then 2
+            else 3
+          end,
+          ap.ident asc,
+          coalesce(a.fix_ident, a.arinc_name) asc
+        limit ?4
+        ",
+    )?;
+
+    let starts_with = format!("{}%", pattern.trim_matches('%'));
+    let exact = pattern.trim_matches('%').to_string();
+    let rows = statement.query_map(params![pattern, exact, starts_with, limit], |row| {
+        let airport_location = LatLon {
+            lon: row.get(3)?,
+            lat: row.get(4)?,
+        };
+        let procedure_type = row.get::<_, Option<String>>(7)?.unwrap_or_default();
+        let procedure_kind = classify_procedure_kind(
+            &procedure_type,
+            row.get::<_, Option<String>>(8)?.as_deref(),
+            lat_lon_from_optional(row.get(12)?, row.get(13)?),
+            lat_lon_from_optional(row.get(14)?, row.get(15)?),
+            airport_location,
+            row.get::<_, i64>(11)? != 0,
+        );
+        let fix_ident = row.get::<_, Option<String>>(10)?;
+        let arinc_name = row.get::<_, Option<String>>(6)?.unwrap_or_default();
+        let ident = procedure_display_name(
+            &procedure_type,
+            &procedure_kind,
+            &arinc_name,
+            fix_ident.as_deref(),
+        );
+
+        Ok(SearchResultItem {
+            id: format!("procedure:{}", row.get::<_, i64>(5)?),
+            entity_type: match procedure_kind {
+                ProcedureKind::Sid => SearchEntityType::Sid,
+                ProcedureKind::Star => SearchEntityType::Star,
+                ProcedureKind::Approach => SearchEntityType::Approach,
+                ProcedureKind::Procedure => SearchEntityType::Procedure,
+            },
+            ident,
+            name: Some(arinc_name),
+            airport_ident: Some(row.get::<_, String>(1)?),
+            airport_name: row.get(2)?,
+            procedure_id: Some(row.get(5)?),
+            procedure_kind: Some(procedure_kind),
+            procedure_type: Some(procedure_type),
+            runway_name: row.get(9)?,
+            airway_type: None,
+            location: Some(airport_location),
+            from: None,
+            to: None,
+        })
+    })?;
+
+    rows.collect()
+}
+
+fn search_rank(item: &SearchResultItem, query: &str) -> (u8, u8, String) {
+    let upper_query = query.to_uppercase();
+    let upper_ident = item.ident.to_uppercase();
+    let upper_name = item.name.as_deref().unwrap_or_default().to_uppercase();
+
+    let ident_rank = if upper_ident == upper_query {
+        0
+    } else if upper_ident.starts_with(&upper_query) {
+        1
+    } else if upper_name == upper_query {
+        2
+    } else if upper_name.starts_with(&upper_query) {
+        3
+    } else {
+        4
+    };
+
+    let type_rank = match item.entity_type {
+        SearchEntityType::Airport => 0,
+        SearchEntityType::Waypoint => 1,
+        SearchEntityType::Vor | SearchEntityType::Ndb => 2,
+        SearchEntityType::Sid | SearchEntityType::Star | SearchEntityType::Approach => 3,
+        SearchEntityType::Procedure => 4,
+        SearchEntityType::Airway => 5,
+    };
+
+    (ident_rank, type_rank, upper_ident)
 }
 
 fn distance_nm(a: LatLon, b: LatLon) -> f64 {
@@ -690,6 +1094,7 @@ select
   a.approach_id,
   coalesce(a.arinc_name, ''),
   coalesce(a.type, ''),
+  nullif(trim(a.suffix), ''),
   nullif(trim(a.runway_name), ''),
   nullif(trim(a.fix_ident), ''),
   (
@@ -768,6 +1173,7 @@ select
   a.approach_id,
   coalesce(a.arinc_name, ''),
   coalesce(a.type, ''),
+  nullif(trim(a.suffix), ''),
   nullif(trim(a.runway_name), ''),
   nullif(trim(a.fix_ident), ''),
   (
@@ -854,7 +1260,7 @@ mod tests {
             lon: 117.0,
         };
 
-        let kind = classify_procedure_kind("GPS", Some(first), Some(last), airport, false);
+        let kind = classify_procedure_kind("GPS", Some("D"), Some(first), Some(last), airport, false);
         assert!(matches!(kind, ProcedureKind::Sid));
     }
 
@@ -873,7 +1279,7 @@ mod tests {
             lon: 116.01,
         };
 
-        let kind = classify_procedure_kind("GPS", Some(first), Some(last), airport, false);
+        let kind = classify_procedure_kind("GPS", Some("A"), Some(first), Some(last), airport, false);
         assert!(matches!(kind, ProcedureKind::Star));
     }
 
@@ -892,7 +1298,28 @@ mod tests {
             lon: 116.01,
         };
 
-        let kind = classify_procedure_kind("GPS", Some(first), Some(last), airport, true);
+        let kind = classify_procedure_kind("GPS", None, Some(first), Some(last), airport, true);
+        assert!(matches!(kind, ProcedureKind::Approach));
+    }
+
+    #[test]
+    fn classifies_suffix_d_as_sid_without_geometry_guessing() {
+        let airport = LatLon { lat: 0.0, lon: 0.0 };
+        let kind = classify_procedure_kind("GPS", Some("D"), None, None, airport, false);
+        assert!(matches!(kind, ProcedureKind::Sid));
+    }
+
+    #[test]
+    fn classifies_suffix_a_as_star_without_geometry_guessing() {
+        let airport = LatLon { lat: 0.0, lon: 0.0 };
+        let kind = classify_procedure_kind("GPS", Some("A"), None, None, airport, false);
+        assert!(matches!(kind, ProcedureKind::Star));
+    }
+
+    #[test]
+    fn keeps_vor_a_as_approach() {
+        let airport = LatLon { lat: 0.0, lon: 0.0 };
+        let kind = classify_procedure_kind("VOR", Some("A"), None, None, airport, false);
         assert!(matches!(kind, ProcedureKind::Approach));
     }
 }

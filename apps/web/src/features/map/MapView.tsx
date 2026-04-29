@@ -99,10 +99,24 @@ export function MapView({
     map.on("moveend zoomend", publishViewport);
     publishViewport();
 
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(() => {
+            map.invalidateSize({
+              animate: false,
+            });
+          });
+
+    if (resizeObserver) {
+      resizeObserver.observe(containerRef.current);
+    }
+
     mapRef.current = map;
 
     return () => {
       map.off("moveend zoomend", publishViewport);
+      resizeObserver?.disconnect();
       map.remove();
       mapRef.current = null;
       airwayLayerRef.current = null;
@@ -287,7 +301,7 @@ export function MapView({
 
   return (
     <div
-      className="h-full min-h-[620px] w-full"
+      className="h-full min-h-[620px] w-full xl:min-h-0"
       ref={containerRef}
     />
   );

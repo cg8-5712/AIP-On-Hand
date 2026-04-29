@@ -7,6 +7,7 @@ import type {
   AirportProceduresResponse,
   MapLayersResponse,
   ProcedureGeometryResponse,
+  SearchResponse,
 } from "./types/api";
 
 vi.mock("./features/map/MapView", async () => {
@@ -156,6 +157,25 @@ const procedureGeometryResponse: ProcedureGeometryResponse = {
   missedPath: [],
 };
 
+const searchResponse: SearchResponse = {
+  query: "idke",
+  results: [
+    {
+      id: "procedure:71985",
+      entityType: "sid",
+      ident: "IDKE2G",
+      name: "RW18L",
+      airportIdent: "ZBAA",
+      airportName: "Capital",
+      procedureId: 71985,
+      procedureKind: "sid",
+      procedureType: "GPS",
+      runwayName: "18L",
+      location: { lon: 116.5983, lat: 40.0733 },
+    },
+  ],
+};
+
 describe("App", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -170,6 +190,7 @@ describe("App", () => {
     vi.spyOn(api, "getMapLayers").mockResolvedValue(mapLayersResponse);
     vi.spyOn(api, "getAirportProcedures").mockResolvedValue(airportProceduresResponse);
     vi.spyOn(api, "getProcedureGeometry").mockResolvedValue(procedureGeometryResponse);
+    vi.spyOn(api, "searchNavdata").mockResolvedValue(searchResponse);
   });
 
   it("loads live layer metadata and selects the first visible airport", async () => {
@@ -237,5 +258,17 @@ describe("App", () => {
 
     const lastCall = vi.mocked(api.getMapLayers).mock.calls.at(-1);
     expect(lastCall?.[1].waypoints).toBe(true);
+  });
+
+  it("filters procedure list by selected procedure type", async () => {
+    const user = userEvent.setup();
+
+    const view = render(<App />);
+    await view.findByText("IDKE2G");
+
+    await user.click(view.getByRole("button", { name: "Approach" }));
+
+    expect(view.queryByRole("button", { name: "IDKE2G" })).not.toBeInTheDocument();
+    expect(view.getByRole("button", { name: "I01-Y" })).toBeInTheDocument();
   });
 });

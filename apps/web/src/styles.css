@@ -25,6 +25,7 @@
   body,
   #root {
     min-height: 100%;
+    height: 100%;
   }
 
   body {
@@ -72,6 +73,14 @@
 
   .page-frame {
     @apply relative z-10 mx-auto flex min-h-screen max-w-[1840px] flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8;
+  }
+
+  @media (min-width: 1280px) {
+    .page-frame {
+      height: 100vh;
+      min-height: 100vh;
+      overflow: hidden;
+    }
   }
 
   .layout-panel {
@@ -138,6 +147,7 @@
 
   .map-shell {
     @apply relative overflow-hidden rounded-[30px] border bg-slate-950/75;
+    min-height: 0;
     border-color: rgba(148, 163, 184, 0.16);
     box-shadow:
       0 36px 90px rgba(0, 0, 0, 0.34),

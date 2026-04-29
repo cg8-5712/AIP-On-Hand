@@ -83,6 +83,17 @@ export type MapLayersResponse = {
 
 export type ProcedureKind = "sid" | "star" | "approach" | "procedure";
 
+export type SearchEntityType =
+  | "airport"
+  | "waypoint"
+  | "vor"
+  | "ndb"
+  | "airway"
+  | "sid"
+  | "star"
+  | "approach"
+  | "procedure";
+
 export type ProcedureSummary = {
   id: number;
   airportIdent: string;
@@ -119,6 +130,28 @@ export type ProcedureGeometryResponse = {
   airport: ProcedureAirport;
   path: ProcedureLegPoint[];
   missedPath: ProcedureLegPoint[];
+};
+
+export type SearchResultItem = {
+  id: string;
+  entityType: SearchEntityType;
+  ident: string;
+  name?: string | null;
+  airportIdent?: string | null;
+  airportName?: string | null;
+  procedureId?: number | null;
+  procedureKind?: ProcedureKind | null;
+  procedureType?: string | null;
+  runwayName?: string | null;
+  airwayType?: string | null;
+  location?: LatLon | null;
+  from?: LatLon | null;
+  to?: LatLon | null;
+};
+
+export type SearchResponse = {
+  query: string;
+  results: SearchResultItem[];
 };
 
 export type Bounds = {

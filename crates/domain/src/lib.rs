@@ -99,9 +99,23 @@ pub struct ProcedureAirport {
     pub location: LatLon,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ProcedureKind {
+    Sid,
+    Star,
+    Approach,
+    Procedure,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SearchEntityType {
+    Airport,
+    Waypoint,
+    Vor,
+    Ndb,
+    Airway,
     Sid,
     Star,
     Approach,
@@ -144,4 +158,30 @@ pub struct ProcedureGeometryResponse {
 pub struct AirportProceduresResponse {
     pub airport: ProcedureAirport,
     pub procedures: Vec<ProcedureSummary>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchResultItem {
+    pub id: String,
+    pub entity_type: SearchEntityType,
+    pub ident: String,
+    pub name: Option<String>,
+    pub airport_ident: Option<String>,
+    pub airport_name: Option<String>,
+    pub procedure_id: Option<i64>,
+    pub procedure_kind: Option<ProcedureKind>,
+    pub procedure_type: Option<String>,
+    pub runway_name: Option<String>,
+    pub airway_type: Option<String>,
+    pub location: Option<LatLon>,
+    pub from: Option<LatLon>,
+    pub to: Option<LatLon>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchResponse {
+    pub query: String,
+    pub results: Vec<SearchResultItem>,
 }

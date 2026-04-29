@@ -4,6 +4,7 @@ import type {
   HealthResponse,
   MapLayersResponse,
   ProcedureGeometryResponse,
+  SearchResponse,
   VersionResponse,
 } from "../types/api";
 
@@ -71,4 +72,12 @@ export function getProcedureGeometry(procedureId: number, options?: RequestOptio
     `/api/v1/procedures/${procedureId}`,
     options,
   );
+}
+
+export function searchNavdata(query: string, options?: RequestOptions) {
+  const params = new URLSearchParams({
+    q: query,
+  });
+
+  return requestJson<SearchResponse>(`/api/v1/search?${params.toString()}`, options);
 }

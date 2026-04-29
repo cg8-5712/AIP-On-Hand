@@ -7,6 +7,7 @@ import {
   getMapLayers,
   getProcedureGeometry,
   getVersion,
+  searchNavdata,
 } from "./lib/api";
 import type {
   AirportFeature,
@@ -15,7 +16,9 @@ import type {
   HealthResponse,
   MapLayersResponse,
   ProcedureGeometryResponse,
+  ProcedureKind,
   ProcedureSummary,
+  SearchResultItem,
   VersionResponse,
 } from "./types/api";
 
@@ -38,6 +41,8 @@ type ViewportState = {
   zoom: number;
 };
 
+type ProcedureFilter = "all" | ProcedureKind;
+
 const initialVisibility: LayerVisibility = {
   airports: true,
   waypoints: false,
@@ -49,12 +54,20 @@ const initialVisibility: LayerVisibility = {
 const panelClass = "layout-panel p-5";
 
 const layerConfig = [
-  { key: "airports", label: "Airports", colorClass: "bg-amber-300", activeClass: "text-amber-200" },
-  { key: "waypoints", label: "Waypoints", colorClass: "bg-sky-300", activeClass: "text-sky-200" },
-  { key: "vors", label: "VOR", colorClass: "bg-emerald-300", activeClass: "text-emerald-200" },
-  { key: "ndbs", label: "NDB", colorClass: "bg-pink-300", activeClass: "text-pink-200" },
-  { key: "airways", label: "Airways", colorClass: "bg-cyan-300", activeClass: "text-cyan-200" },
+  { key: "airports", label: "Airports", colorClass: "bg-amber-300" },
+  { key: "waypoints", label: "Waypoints", colorClass: "bg-sky-300" },
+  { key: "vors", label: "VOR", colorClass: "bg-emerald-300" },
+  { key: "ndbs", label: "NDB", colorClass: "bg-pink-300" },
+  { key: "airways", label: "Airways", colorClass: "bg-cyan-300" },
 ] as const;
+
+const procedureFilterOptions: Array<{ key: ProcedureFilter; label: string }> = [
+  { key: "all", label: "All" },
+  { key: "sid", label: "SID" },
+  { key: "star", label: "STAR" },
+  { key: "approach", label: "Approach" },
+  { key: "procedure", label: "Other" },
+];
 
 export default function App() {
   const [bootstrap, setBootstrap] = useState<BootstrapState>({});
@@ -69,7 +82,13 @@ export default function App() {
   const [selectedProcedureId, setSelectedProcedureId] = useState<number | null>(null);
   const [selectedProcedureGeometry, setSelectedProcedureGeometry] =
     useState<ProcedureGeometryResponse | null>(null);
+  const [procedureFilter, setProcedureFilter] = useState<ProcedureFilter>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResultItem[]>([]);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
   const deferredAirportFilter = useDeferredValue(airportFilter);
+  const deferredSearchQuery = useDeferredValue(searchQuery);
 
   useEffect(() => {
     let active = true;
@@ -103,6 +122,42 @@ export default function App() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    const trimmed = deferredSearchQuery.trim();
+    if (trimmed.length < 2) {
+      setSearchResults([]);
+      setSearchError(null);
+      setIsSearching(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setSearchError(null);
+    setIsSearching(true);
+
+    searchNavdata(trimmed, { signal: controller.signal })
+      .then((response) => {
+        setSearchResults(response.results);
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setSearchResults([]);
+        setSearchError(error instanceof Error ? error.message : "Failed to search navdata");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setIsSearching(false);
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [deferredSearchQuery]);
 
   useEffect(() => {
     if (!viewport) {
@@ -247,9 +302,33 @@ export default function App() {
     } satisfies AirportFeature;
   }, [airportProcedures, layers, selectedAirportIdent]);
 
+  const filteredProcedures = useMemo(() => {
+    const procedures = airportProcedures?.procedures ?? [];
+    if (procedureFilter === "all") {
+      return procedures;
+    }
+
+    return procedures.filter((procedure) => procedure.procedureKind === procedureFilter);
+  }, [airportProcedures, procedureFilter]);
+
+  useEffect(() => {
+    if (procedureFilter === "all") {
+      return;
+    }
+
+    if (!selectedProcedureId) {
+      return;
+    }
+
+    if (!filteredProcedures.some((procedure) => procedure.id === selectedProcedureId)) {
+      setSelectedProcedureId(filteredProcedures[0]?.id ?? null);
+    }
+  }, [filteredProcedures, procedureFilter, selectedProcedureId]);
+
   const procedureMetadata = layers?.metadata;
   const selectedProcedureSummary = selectedProcedureGeometry?.summary;
-  const visibleProcedureCount = airportProcedures?.procedures.length ?? 0;
+  const visibleProcedureCount = filteredProcedures.length;
+  const totalProcedureCount = airportProcedures?.procedures.length ?? 0;
   const selectedPathCount =
     (selectedProcedureGeometry?.path.length ?? 0) + (selectedProcedureGeometry?.missedPath.length ?? 0);
   const viewportSummary = viewport
@@ -257,11 +336,28 @@ export default function App() {
     : "syncing";
   const activeLayerCount = Object.values(visibility).filter(Boolean).length;
 
+  function handleSearchSelection(result: SearchResultItem) {
+    setSearchQuery(`${result.ident}${result.airportIdent ? ` ${result.airportIdent}` : ""}`);
+
+    if (result.airportIdent) {
+      setSelectedAirportIdent(result.airportIdent);
+    } else if (result.entityType === "airport") {
+      setSelectedAirportIdent(result.ident);
+    }
+
+    if (result.procedureId) {
+      if (result.procedureKind) {
+        setProcedureFilter(result.procedureKind);
+      }
+      setSelectedProcedureId(result.procedureId);
+    }
+  }
+
   return (
     <div className="app-shell">
       <div className="page-frame">
         <header className="layout-panel overflow-hidden px-5 py-5 sm:px-6 lg:px-7">
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(420px,0.8fr)]">
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(420px,0.9fr)]">
             <div className="flex flex-col gap-4">
               <div>
                 <p className="section-kicker">Web Flight Planning Surface</p>
@@ -269,10 +365,45 @@ export default function App() {
               </div>
 
               <p className="support-copy max-w-[56rem] text-[1.03rem]">
-                Real navdata is now driving the map. The UI should feel like a working aviation
-                panel, not a debug page, so this pass tightens hierarchy, map focus, and selection
-                readability without changing the backend contract.
+                Real navdata is now driving the map. SID, STAR, approach, airport, waypoint, and
+                airway lookups should read as first-class entities instead of being mixed together.
               </p>
+
+              <div className="max-w-[58rem]">
+                <label className="block text-[0.8rem] text-slate-400" htmlFor="global-search">
+                  Search all navdata
+                  <input
+                    id="global-search"
+                    name="global-search"
+                    type="search"
+                    placeholder="Airport, waypoint, airway, SID, STAR, approach"
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                    className="input-shell"
+                  />
+                </label>
+
+                {(isSearching || searchError || searchResults.length > 0 || deferredSearchQuery.trim().length >= 2) && (
+                  <div className="scroll-panel mt-3 max-h-[18rem] overflow-y-auto rounded-[20px] border border-slate-700/60 bg-slate-950/80 p-2">
+                    {isSearching ? (
+                      <p className="m-0 px-3 py-2 text-sm text-slate-400">Searching navdata...</p>
+                    ) : null}
+                    {searchError ? <InlineError message={searchError} /> : null}
+                    {!isSearching && !searchError && searchResults.length === 0 ? (
+                      <p className="m-0 px-3 py-2 text-sm text-slate-400">No matching navdata results.</p>
+                    ) : null}
+                    <div className="grid gap-2">
+                      {searchResults.map((result) => (
+                        <SearchResultButton
+                          key={result.id}
+                          result={result}
+                          onClick={() => handleSearchSelection(result)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
 
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <HeroMetric
@@ -305,7 +436,7 @@ export default function App() {
                 detail={bootstrap.version?.version ?? "version n/a"}
               />
               <StatusTile
-                label="Procedures"
+                label="Procedure"
                 value={selectedProcedureSummary?.name ?? "none"}
                 detail={
                   selectedProcedureSummary
@@ -331,8 +462,8 @@ export default function App() {
           {procedureError ? <InlineError message={procedureError} className="mt-4" /> : null}
         </header>
 
-        <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[360px_minmax(0,1fr)_380px]">
-          <aside className={`${panelClass} flex min-h-0 flex-col`}>
+        <div className="grid gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-[360px_minmax(0,1fr)_400px]">
+          <aside className={`${panelClass} flex min-h-0 flex-col xl:overflow-hidden`}>
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="section-kicker">Layer Control</p>
@@ -385,7 +516,7 @@ export default function App() {
               <MiniDataTile label="VOR / NDB" value={`${layers?.vors.length ?? 0} / ${layers?.ndbs.length ?? 0}`} />
             </div>
 
-            <ul className="scroll-panel mt-4 grid min-h-0 flex-1 list-none gap-3 overflow-y-auto pr-1">
+            <ul className="scroll-panel mt-4 grid min-h-[240px] flex-1 list-none gap-3 overflow-y-auto overscroll-contain pr-1 xl:min-h-0">
               {visibleAirports.slice(0, 40).map((airport) => (
                 <li key={airport.id} className="m-0">
                   <button
@@ -423,8 +554,8 @@ export default function App() {
             </ul>
           </aside>
 
-          <main className="min-h-0">
-            <div className="map-shell grid h-full min-h-[620px] grid-rows-[1fr]">
+          <main className="min-h-0 xl:overflow-hidden">
+            <div className="map-shell grid min-h-[620px] grid-rows-[1fr] xl:h-full xl:min-h-0">
               <MapView
                 layers={layers}
                 selectedAirportIdent={selectedAirportIdent}
@@ -440,8 +571,9 @@ export default function App() {
                     <p className="section-kicker">Map Surface</p>
                     <h2 className="section-title mt-1">Operational Overview</h2>
                     <p className="support-copy mt-2 text-sm">
-                      Leaflet with OpenStreetMap tiles, recolored into a lower-glare basemap so
-                      nav layers and selected procedures read first.
+                      Search can now target airports, waypoints, navaids, airways, SID, STAR, and
+                      approaches separately. Procedure classification now prefers database signals
+                      before geometry inference.
                     </p>
                   </div>
 
@@ -481,7 +613,7 @@ export default function App() {
                     <div className="overlay-card">
                       <p className="section-kicker">Highlighted Procedure</p>
                       <p className="mt-1 text-sm text-slate-300">
-                        Select an airport and procedure to fit and highlight the decoded path.
+                        Select a procedure search result or airport procedure entry to highlight its path.
                       </p>
                     </div>
                   )}
@@ -490,7 +622,7 @@ export default function App() {
             </div>
           </main>
 
-          <aside className={`${panelClass} flex min-h-0 flex-col`}>
+          <aside className={`${panelClass} flex min-h-0 flex-col xl:overflow-hidden`}>
             <div>
               <p className="section-kicker">Selection Desk</p>
               <h2 className="section-title">Airport And Procedures</h2>
@@ -515,14 +647,13 @@ export default function App() {
                 <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
                   <MiniDataTile label="Lat" value={selectedAirport.location.lat.toFixed(4)} />
                   <MiniDataTile label="Lon" value={selectedAirport.location.lon.toFixed(4)} />
-                  <MiniDataTile label="Procedures" value={String(visibleProcedureCount)} />
+                  <MiniDataTile label="Procedures" value={String(totalProcedureCount)} />
                 </div>
               </div>
             ) : (
               <div className="overlay-card mt-4">
                 <p className="muted-copy text-sm">
-                  Move the map or click a visible airport to inspect procedures and highlight
-                  geometry.
+                  Move the map, search globally, or click a visible airport to inspect procedures.
                 </p>
               </div>
             )}
@@ -535,12 +666,23 @@ export default function App() {
                 <h3 className="section-title">Decoded List</h3>
               </div>
               <span className="text-[0.76rem] uppercase tracking-[0.12em] text-slate-500">
-                {visibleProcedureCount} items
+                {visibleProcedureCount} / {totalProcedureCount}
               </span>
             </div>
 
-            <div className="scroll-panel mt-4 grid min-h-0 flex-1 gap-2 overflow-y-auto pr-1">
-              {(airportProcedures?.procedures ?? []).slice(0, 60).map((procedure) => (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {procedureFilterOptions.map((option) => (
+                <FilterChip
+                  key={option.key}
+                  label={option.label}
+                  isActive={procedureFilter === option.key}
+                  onClick={() => setProcedureFilter(option.key)}
+                />
+              ))}
+            </div>
+
+            <div className="scroll-panel mt-4 grid min-h-[280px] flex-1 gap-2 overflow-y-auto overscroll-contain pr-1 xl:min-h-0">
+              {filteredProcedures.slice(0, 80).map((procedure) => (
                 <ProcedureButton
                   key={procedure.id}
                   procedure={procedure}
@@ -548,10 +690,10 @@ export default function App() {
                   onClick={() => setSelectedProcedureId(procedure.id)}
                 />
               ))}
-              {airportProcedures?.procedures.length === 0 ? (
+              {filteredProcedures.length === 0 ? (
                 <div className="overlay-card">
                   <p className="muted-copy text-sm">
-                    No procedures were returned for this airport.
+                    No procedures match the current filter.
                   </p>
                 </div>
               ) : null}
@@ -564,9 +706,10 @@ export default function App() {
               <h3 className="section-title">Current Notes</h3>
             </div>
             <p className="support-copy mt-3 text-sm">
-              This source stores many procedures in the <span className="font-mono text-slate-100">approach</span>
-              {" "}and <span className="font-mono text-slate-100">approach_leg</span> tables. SID and STAR labels
-              are inferred from leg geometry when explicit classification is not available.
+              Procedure classification now prefers explicit database suffix values where present:
+              <span className="font-mono text-slate-100"> D</span> for SID and
+              <span className="font-mono text-slate-100"> A</span> for STAR, with geometry-based
+              fallback only when the source does not expose that distinction directly.
             </p>
 
             {selectedProcedureSummary ? (
@@ -743,6 +886,48 @@ function LayerRow({ label, helper, count, colorClass, isActive, onClick }: Layer
   );
 }
 
+type SearchResultButtonProps = {
+  result: SearchResultItem;
+  onClick: () => void;
+};
+
+function SearchResultButton({ result, onClick }: SearchResultButtonProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="grid w-full cursor-pointer gap-1 rounded-[16px] border border-slate-700/60 bg-slate-950/56 px-3 py-3 text-left transition duration-200 hover:border-cyan-300/24 hover:bg-slate-900/86 motion-reduce:transition-none"
+      aria-label={result.ident}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <span className="font-mono text-[0.92rem] text-slate-100">{result.ident}</span>
+        <ProcedureKindChip kind={searchEntityToChip(result)} />
+      </div>
+      <span className="text-sm text-slate-300">
+        {result.name || result.airportName || "Unnamed result"}
+      </span>
+      <span className="text-xs text-slate-500">
+        {result.airportIdent ? `${result.airportIdent} / ` : ""}
+        {result.entityType.toUpperCase()}
+        {result.runwayName ? ` / RWY ${result.runwayName}` : ""}
+      </span>
+    </button>
+  );
+}
+
+function searchEntityToChip(result: SearchResultItem): ProcedureKind {
+  switch (result.entityType) {
+    case "sid":
+      return "sid";
+    case "star":
+      return "star";
+    case "approach":
+      return "approach";
+    default:
+      return "procedure";
+  }
+}
+
 type MiniDataTileProps = {
   label: string;
   value: string;
@@ -785,8 +970,32 @@ function LegendItem({ colorClass, label }: LegendItemProps) {
   );
 }
 
+type FilterChipProps = {
+  label: string;
+  isActive: boolean;
+  onClick: () => void;
+};
+
+function FilterChip({ label, isActive, onClick }: FilterChipProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        `cursor-pointer rounded-full border px-3 py-2 text-[0.74rem] uppercase tracking-[0.12em] transition duration-200 motion-reduce:transition-none ` +
+        (isActive
+          ? "border-cyan-300/28 bg-cyan-950/34 text-cyan-100"
+          : "border-slate-700/60 bg-slate-950/46 text-slate-400 hover:border-cyan-300/22 hover:text-slate-200")
+      }
+      aria-pressed={isActive}
+    >
+      {label}
+    </button>
+  );
+}
+
 type ProcedureKindChipProps = {
-  kind: ProcedureSummary["procedureKind"];
+  kind: ProcedureKind;
 };
 
 function ProcedureKindChip({ kind }: ProcedureKindChipProps) {
