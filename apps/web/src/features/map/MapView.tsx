@@ -72,6 +72,7 @@ export function MapView({
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
+      className: "navmap-tile",
     }).addTo(map);
 
     airwayLayerRef.current = L.layerGroup().addTo(map);
@@ -147,8 +148,8 @@ export function MapView({
           ],
           {
             color: airway.airwayType === "J" ? "#5eead4" : airway.airwayType === "V" ? "#38bdf8" : "#67e8f9",
-            weight: 1.2,
-            opacity: 0.55,
+            weight: 1.35,
+            opacity: 0.62,
           },
         ).addTo(airwayLayer);
       }
@@ -157,11 +158,11 @@ export function MapView({
     if (visibility.waypoints) {
       for (const waypoint of layers.waypoints) {
         L.circleMarker([waypoint.location.lat, waypoint.location.lon], {
-          radius: 2.5,
+          radius: 2.7,
           weight: 1,
           color: "#93c5fd",
           fillColor: "#dbeafe",
-          fillOpacity: 0.8,
+          fillOpacity: 0.86,
         })
           .bindTooltip(`${waypoint.ident}${waypoint.name ? ` | ${waypoint.name}` : ""}`)
           .addTo(waypointLayer);
@@ -171,7 +172,7 @@ export function MapView({
     if (visibility.vors) {
       for (const vor of layers.vors) {
         L.circleMarker([vor.location.lat, vor.location.lon], {
-          radius: 4.5,
+          radius: 4.8,
           weight: 2,
           color: "#86efac",
           fillColor: "#14532d",
@@ -185,7 +186,7 @@ export function MapView({
     if (visibility.ndbs) {
       for (const ndb of layers.ndbs) {
         L.circleMarker([ndb.location.lat, ndb.location.lon], {
-          radius: 4,
+          radius: 4.2,
           weight: 2,
           color: "#f9a8d4",
           fillColor: "#831843",
@@ -199,7 +200,7 @@ export function MapView({
     if (visibility.airports) {
       for (const airport of layers.airports) {
         const marker = L.circleMarker([airport.location.lat, airport.location.lon], {
-          radius: 5.5,
+          radius: 5.8,
           weight: 2,
           color: "#fbbf24",
           fillColor: "#0f172a",
@@ -211,11 +212,11 @@ export function MapView({
 
         if (airport.ident === selectedAirportIdent) {
           L.circleMarker([airport.location.lat, airport.location.lon], {
-            radius: 9,
+            radius: 10,
             weight: 3,
-            color: "#22c55e",
+            color: "#22d3ee",
             fillColor: "#0f172a",
-            fillOpacity: 0.15,
+            fillOpacity: 0.22,
           })
             .bindTooltip(`${airport.ident} | selected`)
             .addTo(selectedAirportLayer);
@@ -249,7 +250,7 @@ export function MapView({
     if (path.length > 1) {
       L.polyline(path, {
         color: "#f97316",
-        weight: 4,
+        weight: 4.2,
         opacity: 0.95,
       }).addTo(procedureLayer);
     }
@@ -257,7 +258,7 @@ export function MapView({
     if (missedPath.length > 1) {
       L.polyline(missedPath, {
         color: "#fb7185",
-        weight: 3,
+        weight: 3.2,
         opacity: 0.9,
         dashArray: "10 8",
       }).addTo(procedureLayer);
@@ -267,7 +268,7 @@ export function MapView({
 
     for (const point of highlightedPoints) {
       L.circleMarker(point, {
-        radius: 4,
+        radius: 4.2,
         weight: 2,
         color: "#fde68a",
         fillColor: "#f97316",
@@ -286,7 +287,7 @@ export function MapView({
 
   return (
     <div
-      className="min-h-[460px] overflow-hidden rounded-[24px] border border-slate-300/18 shadow-[0_28px_54px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.04)] md:min-h-[620px]"
+      className="h-full min-h-[620px] w-full"
       ref={containerRef}
     />
   );
