@@ -56,7 +56,9 @@ impl WeatherService {
             .user_agent("AIP-On-Hand/0.1 weather-service")
             .timeout(StdDuration::from_secs(15))
             .build()
-            .map_err(|error| WeatherError::Upstream(format!("failed to build HTTP client: {error}")))?;
+            .map_err(|error| {
+                WeatherError::Upstream(format!("failed to build HTTP client: {error}"))
+            })?;
 
         Ok(Self {
             client,
@@ -101,7 +103,8 @@ impl WeatherService {
         let metar = metar_payload.first().map(map_metar);
         let taf = taf_payload.first().map(map_taf);
         let recent_cycles = if history_hours > 0 {
-            self.fetch_recent_cycles(&requested_id, history_hours).await?
+            self.fetch_recent_cycles(&requested_id, history_hours)
+                .await?
         } else {
             Vec::new()
         };
@@ -136,7 +139,8 @@ impl WeatherService {
             ));
         }
         if metar.is_none() {
-            warnings.push("AWC METAR payload is currently unavailable for this station.".to_string());
+            warnings
+                .push("AWC METAR payload is currently unavailable for this station.".to_string());
         }
         if taf.is_none() {
             warnings.push("AWC TAF payload is currently unavailable for this station.".to_string());
@@ -164,14 +168,12 @@ impl WeatherService {
         station_id: &str,
     ) -> Result<Vec<Value>, WeatherError> {
         let url = build_awc_url(&self.awc_base_url, endpoint, station_id)?;
-        let response = self
-            .client
-            .get(url.clone())
-            .send()
-            .await
-            .map_err(|error| WeatherError::Upstream(format!("AWC request failed for {url}: {error}")))?;
+        let response = self.client.get(url.clone()).send().await.map_err(|error| {
+            WeatherError::Upstream(format!("AWC request failed for {url}: {error}"))
+        })?;
 
-        if response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::NO_CONTENT {
+        if response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::NO_CONTENT
+        {
             return Ok(Vec::new());
         }
 
@@ -183,10 +185,9 @@ impl WeatherService {
             )));
         }
 
-        response
-            .json::<Vec<Value>>()
-            .await
-            .map_err(|error| WeatherError::Upstream(format!("failed to decode AWC JSON from {url}: {error}")))
+        response.json::<Vec<Value>>().await.map_err(|error| {
+            WeatherError::Upstream(format!("failed to decode AWC JSON from {url}: {error}"))
+        })
     }
 
     async fn fetch_noaa_text(
@@ -194,14 +195,12 @@ impl WeatherService {
         relative_path: &str,
     ) -> Result<Option<WeatherTextBulletin>, WeatherError> {
         let url = build_noaa_url(&self.noaa_base_url, relative_path)?;
-        let response = self
-            .client
-            .get(url.clone())
-            .send()
-            .await
-            .map_err(|error| WeatherError::Upstream(format!("NOAA request failed for {url}: {error}")))?;
+        let response = self.client.get(url.clone()).send().await.map_err(|error| {
+            WeatherError::Upstream(format!("NOAA request failed for {url}: {error}"))
+        })?;
 
-        if response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::NO_CONTENT {
+        if response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::NO_CONTENT
+        {
             return Ok(None);
         }
 
@@ -213,10 +212,9 @@ impl WeatherService {
             )));
         }
 
-        let text = response
-            .text()
-            .await
-            .map_err(|error| WeatherError::Upstream(format!("failed to read NOAA text from {url}: {error}")))?;
+        let text = response.text().await.map_err(|error| {
+            WeatherError::Upstream(format!("failed to read NOAA text from {url}: {error}"))
+        })?;
 
         Ok(parse_noaa_bulletin(&text))
     }
@@ -250,14 +248,12 @@ impl WeatherService {
         cycle_label: &str,
     ) -> Result<Option<NoaaCycleMetar>, WeatherError> {
         let url = build_noaa_url(&self.noaa_base_url, &format!("cycles/{cycle_label}.TXT"))?;
-        let response = self
-            .client
-            .get(url.clone())
-            .send()
-            .await
-            .map_err(|error| WeatherError::Upstream(format!("NOAA cycle request failed for {url}: {error}")))?;
+        let response = self.client.get(url.clone()).send().await.map_err(|error| {
+            WeatherError::Upstream(format!("NOAA cycle request failed for {url}: {error}"))
+        })?;
 
-        if response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::NO_CONTENT {
+        if response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::NO_CONTENT
+        {
             return Ok(None);
         }
 
@@ -269,10 +265,11 @@ impl WeatherService {
             )));
         }
 
-        let text = response
-            .text()
-            .await
-            .map_err(|error| WeatherError::Upstream(format!("failed to read NOAA cycle text from {url}: {error}")))?;
+        let text = response.text().await.map_err(|error| {
+            WeatherError::Upstream(format!(
+                "failed to read NOAA cycle text from {url}: {error}"
+            ))
+        })?;
 
         Ok(extract_cycle_metar(station_id, cycle_label, &text))
     }
@@ -434,7 +431,11 @@ fn parse_noaa_bulletin(text: &str) -> Option<WeatherTextBulletin> {
     }
 
     let mut lines = trimmed.lines();
-    let issued_at = lines.next().map(str::trim).filter(|line| !line.is_empty()).map(str::to_string);
+    let issued_at = lines
+        .next()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string);
     let body = lines
         .map(str::trim_end)
         .collect::<Vec<_>>()
@@ -444,7 +445,11 @@ fn parse_noaa_bulletin(text: &str) -> Option<WeatherTextBulletin> {
 
     Some(WeatherTextBulletin {
         issued_at,
-        text: if body.is_empty() { trimmed.to_string() } else { body },
+        text: if body.is_empty() {
+            trimmed.to_string()
+        } else {
+            body
+        },
     })
 }
 

@@ -99,7 +99,7 @@ pub struct ProcedureAirport {
     pub location: LatLon,
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ProcedureKind {
     Sid,
@@ -108,7 +108,7 @@ pub enum ProcedureKind {
     Procedure,
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SearchEntityType {
     Airport,
@@ -184,6 +184,62 @@ pub struct SearchResultItem {
 pub struct SearchResponse {
     pub query: String,
     pub results: Vec<SearchResultItem>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RouteProcedureOption {
+    pub procedure_id: i64,
+    pub name: String,
+    pub arinc_name: String,
+    pub procedure_type: String,
+    pub runway_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RouteProcedurePoint {
+    pub ident: String,
+    pub location: LatLon,
+    pub minimum_procedure_distance_nm: f64,
+    pub procedures: Vec<RouteProcedureOption>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RouteAirwaySegment {
+    pub airway_name: String,
+    pub airway_type: String,
+    pub route_type: Option<String>,
+    pub direction: Option<String>,
+    pub minimum_altitude: Option<i64>,
+    pub maximum_altitude: Option<i64>,
+    pub from_ident: String,
+    pub to_ident: String,
+    pub from: LatLon,
+    pub to: LatLon,
+    pub distance_nm: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoutePlanCandidate {
+    pub total_distance_nm: f64,
+    pub airway_distance_nm: f64,
+    pub departure: RouteProcedurePoint,
+    pub airways: Vec<RouteAirwaySegment>,
+    pub arrival: RouteProcedurePoint,
+    pub approaches: Vec<RouteProcedureOption>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoutePlanResponse {
+    pub departure_airport: ProcedureAirport,
+    pub arrival_airport: ProcedureAirport,
+    pub cruise_altitude_ft: i64,
+    pub candidates: Vec<RoutePlanCandidate>,
+    pub notes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

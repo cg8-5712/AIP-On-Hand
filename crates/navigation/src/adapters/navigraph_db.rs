@@ -1,11 +1,16 @@
 use aip_domain::{
     AirportFeature, AirportProceduresResponse, AirwayFeature, LatLon, LayerTruncation,
     MapLayersResponse, NavDbMetadata, NavaidFeature, ProcedureAirport, ProcedureGeometryResponse,
-    ProcedureKind, ProcedureLegPoint, ProcedureSummary, SearchEntityType, SearchResponse,
+    ProcedureKind, ProcedureLegPoint, ProcedureSummary, RouteAirwaySegment, RoutePlanCandidate,
+    RoutePlanResponse, RouteProcedureOption, RouteProcedurePoint, SearchEntityType, SearchResponse,
     SearchResultItem, WaypointFeature,
 };
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Result};
-use std::path::{Path, PathBuf};
+use std::{
+    cmp::Ordering,
+    collections::{BinaryHeap, HashMap, HashSet},
+    path::{Path, PathBuf},
+};
 
 const AIRPORT_LIMIT: i64 = 400;
 const WAYPOINT_LIMIT: i64 = 1200;
@@ -172,7 +177,11 @@ impl NavDb {
 
         let mut results = Vec::new();
         results.extend(search_airports(&connection, &pattern, SEARCH_LIMIT / 3)?);
-        results.extend(search_nav_entities(&connection, &pattern, SEARCH_LIMIT / 2)?);
+        results.extend(search_nav_entities(
+            &connection,
+            &pattern,
+            SEARCH_LIMIT / 2,
+        )?);
         results.extend(search_airways(&connection, &pattern, SEARCH_LIMIT / 4)?);
         results.extend(search_procedures(&connection, &pattern, SEARCH_LIMIT)?);
 
@@ -191,6 +200,63 @@ impl NavDb {
             query: query.to_string(),
             results,
         })
+    }
+
+    pub fn plan_routes(
+        &self,
+        departure_airport_ident: &str,
+        arrival_airport_ident: &str,
+        cruise_altitude_ft: i64,
+        limit: usize,
+    ) -> Result<Option<RoutePlanResponse>> {
+        let connection = self.connect()?;
+        let Some(departure_airport) = query_airport(&connection, departure_airport_ident)? else {
+            return Ok(None);
+        };
+        let Some(arrival_airport) = query_airport(&connection, arrival_airport_ident)? else {
+            return Ok(None);
+        };
+
+        let departure_rows =
+            query_procedure_rows_for_airport(&connection, &departure_airport.ident)?;
+        let arrival_rows = query_procedure_rows_for_airport(&connection, &arrival_airport.ident)?;
+
+        let departure_points =
+            build_route_procedure_points(&connection, &departure_rows, ProcedureKind::Sid)?;
+        let arrival_points =
+            build_route_procedure_points(&connection, &arrival_rows, ProcedureKind::Star)?;
+        let approaches = build_route_approaches(&arrival_rows);
+
+        let mut notes = vec![
+            "候选按离场/进场程序点分组，具体跑道与程序请结合风向和运行条件选择。".to_string(),
+            "航路仅保留满足当前巡航高度以及单向/双向限制的 airway 段。".to_string(),
+            "进近程序只列出目的场候选，本次规划不会自动锁定最终跑道。".to_string(),
+        ];
+
+        if departure_points.is_empty() {
+            notes.push("离场机场没有解析出可用于接入航路网的 SID 程序点。".to_string());
+        }
+
+        if arrival_points.is_empty() {
+            notes.push("到达机场没有解析出可用于接出航路网的 STAR 程序点。".to_string());
+        }
+
+        let candidates = plan_route_candidates(
+            &connection,
+            &departure_points,
+            &arrival_points,
+            &approaches,
+            cruise_altitude_ft,
+            limit.max(1),
+        )?;
+
+        Ok(Some(RoutePlanResponse {
+            departure_airport,
+            arrival_airport,
+            cruise_altitude_ft,
+            candidates,
+            notes,
+        }))
     }
 
     fn connect(&self) -> Result<Connection> {
@@ -215,6 +281,60 @@ struct ProcedureRow {
     has_missed: bool,
     first_position: Option<LatLon>,
     last_position: Option<LatLon>,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedWaypoint {
+    waypoint_id: i64,
+    ident: String,
+    location: LatLon,
+}
+
+#[derive(Debug, Clone)]
+struct PlannedProcedurePoint {
+    waypoint_id: i64,
+    point: RouteProcedurePoint,
+}
+
+#[derive(Debug, Clone)]
+struct AirwayEdge {
+    neighbor_waypoint_id: i64,
+    segment: RouteAirwaySegment,
+}
+
+#[derive(Debug, Clone)]
+struct PathPrev {
+    previous_waypoint_id: i64,
+    segment: RouteAirwaySegment,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct HeapState {
+    cost_nm: f64,
+    waypoint_id: i64,
+}
+
+impl PartialEq for HeapState {
+    fn eq(&self, other: &Self) -> bool {
+        self.waypoint_id == other.waypoint_id && self.cost_nm.to_bits() == other.cost_nm.to_bits()
+    }
+}
+
+impl Eq for HeapState {}
+
+impl PartialOrd for HeapState {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for HeapState {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other
+            .cost_nm
+            .total_cmp(&self.cost_nm)
+            .then_with(|| self.waypoint_id.cmp(&other.waypoint_id))
+    }
 }
 
 fn open_read_only(path: &Path) -> Result<Connection> {
@@ -614,6 +734,488 @@ fn query_procedure_legs(
     Ok((path, missed_path))
 }
 
+fn build_route_procedure_points(
+    connection: &Connection,
+    rows: &[ProcedureRow],
+    desired_kind: ProcedureKind,
+) -> Result<Vec<PlannedProcedurePoint>> {
+    let mut grouped: HashMap<i64, (ResolvedWaypoint, f64, Vec<RouteProcedureOption>)> =
+        HashMap::new();
+
+    for row in rows {
+        let summary = procedure_summary_from_row(row);
+        if summary.procedure_kind != desired_kind {
+            continue;
+        }
+
+        let (path, _) = query_procedure_legs(connection, row.approach_id)?;
+        let Some(endpoint) = extract_route_endpoint(&path, desired_kind) else {
+            continue;
+        };
+        let Some(ident) = endpoint
+            .ident
+            .as_deref()
+            .map(str::trim)
+            .filter(|ident| !ident.is_empty())
+        else {
+            continue;
+        };
+        let Some(waypoint) = resolve_waypoint(connection, ident, endpoint.position)? else {
+            continue;
+        };
+
+        let procedure_distance_nm = polyline_distance_nm(&path);
+        let entry = grouped
+            .entry(waypoint.waypoint_id)
+            .or_insert_with(|| (waypoint.clone(), procedure_distance_nm, Vec::new()));
+        entry.1 = entry.1.min(procedure_distance_nm);
+        entry.2.push(route_procedure_option_from_summary(&summary));
+    }
+
+    let mut points = grouped
+        .into_values()
+        .map(
+            |(waypoint, minimum_procedure_distance_nm, mut procedures)| {
+                procedures.sort_by(|left, right| {
+                    left.runway_name
+                        .cmp(&right.runway_name)
+                        .then_with(|| left.name.cmp(&right.name))
+                        .then_with(|| left.arinc_name.cmp(&right.arinc_name))
+                });
+                procedures.dedup_by(|left, right| left.procedure_id == right.procedure_id);
+
+                PlannedProcedurePoint {
+                    waypoint_id: waypoint.waypoint_id,
+                    point: RouteProcedurePoint {
+                        ident: waypoint.ident,
+                        location: waypoint.location,
+                        minimum_procedure_distance_nm,
+                        procedures,
+                    },
+                }
+            },
+        )
+        .collect::<Vec<_>>();
+
+    points.sort_by(|left, right| {
+        left.point
+            .minimum_procedure_distance_nm
+            .total_cmp(&right.point.minimum_procedure_distance_nm)
+            .then_with(|| left.point.ident.cmp(&right.point.ident))
+    });
+
+    Ok(points)
+}
+
+fn build_route_approaches(rows: &[ProcedureRow]) -> Vec<RouteProcedureOption> {
+    let mut approaches = rows
+        .iter()
+        .map(procedure_summary_from_row)
+        .filter(|summary| summary.procedure_kind == ProcedureKind::Approach)
+        .map(|summary| route_procedure_option_from_summary(&summary))
+        .collect::<Vec<_>>();
+
+    approaches.sort_by(|left, right| {
+        left.runway_name
+            .cmp(&right.runway_name)
+            .then_with(|| left.procedure_type.cmp(&right.procedure_type))
+            .then_with(|| left.name.cmp(&right.name))
+    });
+    approaches.dedup_by(|left, right| left.procedure_id == right.procedure_id);
+    approaches
+}
+
+fn route_procedure_option_from_summary(summary: &ProcedureSummary) -> RouteProcedureOption {
+    RouteProcedureOption {
+        procedure_id: summary.id,
+        name: summary.name.clone(),
+        arinc_name: summary.arinc_name.clone(),
+        procedure_type: summary.procedure_type.clone(),
+        runway_name: summary.runway_name.clone(),
+    }
+}
+
+fn extract_route_endpoint(
+    path: &[ProcedureLegPoint],
+    procedure_kind: ProcedureKind,
+) -> Option<ProcedureLegPoint> {
+    let candidate = match procedure_kind {
+        ProcedureKind::Sid => path.iter().rev().find(|point| {
+            point
+                .ident
+                .as_deref()
+                .map(str::trim)
+                .is_some_and(|ident| !ident.is_empty())
+        }),
+        ProcedureKind::Star => path.iter().find(|point| {
+            point
+                .ident
+                .as_deref()
+                .map(str::trim)
+                .is_some_and(|ident| !ident.is_empty())
+        }),
+        _ => None,
+    }?;
+
+    Some(candidate.clone())
+}
+
+fn resolve_waypoint(
+    connection: &Connection,
+    ident: &str,
+    location: LatLon,
+) -> Result<Option<ResolvedWaypoint>> {
+    let mut statement = connection.prepare(
+        "
+        select
+          waypoint_id,
+          ident,
+          lonx,
+          laty
+        from waypoint
+        where upper(ident) = upper(?1)
+        order by
+          abs(lonx - ?2) + abs(laty - ?3) asc
+        limit 8
+        ",
+    )?;
+
+    let rows = statement.query_map(params![ident, location.lon, location.lat], |row| {
+        Ok(ResolvedWaypoint {
+            waypoint_id: row.get(0)?,
+            ident: row.get(1)?,
+            location: LatLon {
+                lon: row.get(2)?,
+                lat: row.get(3)?,
+            },
+        })
+    })?;
+
+    let mut best_match: Option<(f64, ResolvedWaypoint)> = None;
+    for item in rows {
+        let waypoint = item?;
+        let distance = distance_nm(location, waypoint.location);
+        match &best_match {
+            Some((current_distance, _)) if *current_distance <= distance => {}
+            _ => best_match = Some((distance, waypoint)),
+        }
+    }
+
+    Ok(best_match
+        .filter(|(distance, _)| *distance <= 12.0)
+        .map(|(_, waypoint)| waypoint))
+}
+
+fn plan_route_candidates(
+    connection: &Connection,
+    departure_points: &[PlannedProcedurePoint],
+    arrival_points: &[PlannedProcedurePoint],
+    approaches: &[RouteProcedureOption],
+    cruise_altitude_ft: i64,
+    limit: usize,
+) -> Result<Vec<RoutePlanCandidate>> {
+    if departure_points.is_empty() || arrival_points.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let arrival_lookup = arrival_points
+        .iter()
+        .map(|point| (point.waypoint_id, point))
+        .collect::<HashMap<_, _>>();
+    let target_ids = arrival_lookup.keys().copied().collect::<HashSet<_>>();
+    let mut neighbor_cache: HashMap<i64, Vec<AirwayEdge>> = HashMap::new();
+    let mut candidates = Vec::new();
+
+    for departure in departure_points {
+        let paths = shortest_paths_to_targets(
+            connection,
+            departure.waypoint_id,
+            &target_ids,
+            cruise_altitude_ft,
+            &mut neighbor_cache,
+        )?;
+
+        for (arrival_waypoint_id, (airway_distance_nm, airways)) in paths {
+            if airways.is_empty() {
+                continue;
+            }
+
+            let Some(arrival) = arrival_lookup.get(&arrival_waypoint_id) else {
+                continue;
+            };
+            let total_distance_nm = departure.point.minimum_procedure_distance_nm
+                + airway_distance_nm
+                + arrival.point.minimum_procedure_distance_nm;
+
+            candidates.push(RoutePlanCandidate {
+                total_distance_nm,
+                airway_distance_nm,
+                departure: departure.point.clone(),
+                airways,
+                arrival: arrival.point.clone(),
+                approaches: approaches.to_vec(),
+            });
+        }
+    }
+
+    candidates.sort_by(|left, right| {
+        left.total_distance_nm
+            .total_cmp(&right.total_distance_nm)
+            .then_with(|| left.airway_distance_nm.total_cmp(&right.airway_distance_nm))
+            .then_with(|| left.departure.ident.cmp(&right.departure.ident))
+            .then_with(|| left.arrival.ident.cmp(&right.arrival.ident))
+    });
+    candidates.truncate(limit);
+    Ok(candidates)
+}
+
+fn shortest_paths_to_targets(
+    connection: &Connection,
+    source_waypoint_id: i64,
+    target_ids: &HashSet<i64>,
+    cruise_altitude_ft: i64,
+    neighbor_cache: &mut HashMap<i64, Vec<AirwayEdge>>,
+) -> Result<HashMap<i64, (f64, Vec<RouteAirwaySegment>)>> {
+    let mut distances = HashMap::<i64, f64>::new();
+    let mut previous = HashMap::<i64, PathPrev>::new();
+    let mut queue = BinaryHeap::new();
+    let mut remaining_targets = target_ids.clone();
+
+    distances.insert(source_waypoint_id, 0.0);
+    queue.push(HeapState {
+        cost_nm: 0.0,
+        waypoint_id: source_waypoint_id,
+    });
+
+    while let Some(state) = queue.pop() {
+        let Some(&known_cost) = distances.get(&state.waypoint_id) else {
+            continue;
+        };
+        if state.cost_nm > known_cost {
+            continue;
+        }
+
+        remaining_targets.remove(&state.waypoint_id);
+        if remaining_targets.is_empty() {
+            break;
+        }
+
+        let neighbors = if let Some(cached) = neighbor_cache.get(&state.waypoint_id) {
+            cached.clone()
+        } else {
+            let queried =
+                query_airway_neighbors(connection, state.waypoint_id, cruise_altitude_ft)?;
+            neighbor_cache.insert(state.waypoint_id, queried.clone());
+            queried
+        };
+
+        for edge in neighbors {
+            let next_cost = state.cost_nm + edge.segment.distance_nm;
+            let best_cost = distances
+                .get(&edge.neighbor_waypoint_id)
+                .copied()
+                .unwrap_or(f64::INFINITY);
+
+            if next_cost >= best_cost {
+                continue;
+            }
+
+            distances.insert(edge.neighbor_waypoint_id, next_cost);
+            previous.insert(
+                edge.neighbor_waypoint_id,
+                PathPrev {
+                    previous_waypoint_id: state.waypoint_id,
+                    segment: edge.segment.clone(),
+                },
+            );
+            queue.push(HeapState {
+                cost_nm: next_cost,
+                waypoint_id: edge.neighbor_waypoint_id,
+            });
+        }
+    }
+
+    let mut paths = HashMap::new();
+    for target_waypoint_id in target_ids {
+        if *target_waypoint_id == source_waypoint_id {
+            continue;
+        }
+
+        let Some(&distance) = distances.get(target_waypoint_id) else {
+            continue;
+        };
+        let airways = reconstruct_airway_path(&previous, source_waypoint_id, *target_waypoint_id);
+        if airways.is_empty() {
+            continue;
+        }
+        paths.insert(*target_waypoint_id, (distance, airways));
+    }
+
+    Ok(paths)
+}
+
+fn reconstruct_airway_path(
+    previous: &HashMap<i64, PathPrev>,
+    source_waypoint_id: i64,
+    target_waypoint_id: i64,
+) -> Vec<RouteAirwaySegment> {
+    let mut current_waypoint_id = target_waypoint_id;
+    let mut reversed = Vec::new();
+
+    while current_waypoint_id != source_waypoint_id {
+        let Some(step) = previous.get(&current_waypoint_id) else {
+            return Vec::new();
+        };
+        reversed.push(step.segment.clone());
+        current_waypoint_id = step.previous_waypoint_id;
+    }
+
+    reversed.reverse();
+    reversed
+}
+
+fn query_airway_neighbors(
+    connection: &Connection,
+    waypoint_id: i64,
+    cruise_altitude_ft: i64,
+) -> Result<Vec<AirwayEdge>> {
+    let mut statement = connection.prepare(
+        "
+        select
+          a.from_waypoint_id,
+          a.to_waypoint_id,
+          wf.ident,
+          wt.ident,
+          a.airway_name,
+          a.airway_type,
+          nullif(trim(a.route_type), ''),
+          nullif(trim(a.direction), ''),
+          a.minimum_altitude,
+          a.maximum_altitude,
+          a.from_lonx,
+          a.from_laty,
+          a.to_lonx,
+          a.to_laty
+        from airway a
+        join waypoint wf on wf.waypoint_id = a.from_waypoint_id
+        join waypoint wt on wt.waypoint_id = a.to_waypoint_id
+        where a.from_waypoint_id = ?1 or a.to_waypoint_id = ?1
+        ",
+    )?;
+
+    let rows = statement.query_map(params![waypoint_id], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, String>(4)?,
+            row.get::<_, String>(5)?,
+            row.get::<_, Option<String>>(6)?,
+            row.get::<_, Option<String>>(7)?,
+            row.get::<_, Option<i64>>(8)?,
+            row.get::<_, Option<i64>>(9)?,
+            LatLon {
+                lon: row.get(10)?,
+                lat: row.get(11)?,
+            },
+            LatLon {
+                lon: row.get(12)?,
+                lat: row.get(13)?,
+            },
+        ))
+    })?;
+
+    let mut edges = Vec::new();
+    for item in rows {
+        let (
+            from_waypoint_id,
+            to_waypoint_id,
+            from_ident,
+            to_ident,
+            airway_name,
+            airway_type,
+            route_type,
+            direction,
+            minimum_altitude,
+            maximum_altitude,
+            from,
+            to,
+        ) = item?;
+
+        if minimum_altitude.is_some_and(|minimum| cruise_altitude_ft < minimum)
+            || maximum_altitude.is_some_and(|maximum| cruise_altitude_ft > maximum)
+        {
+            continue;
+        }
+
+        if airway_allows_departure(
+            direction.as_deref(),
+            waypoint_id,
+            from_waypoint_id,
+            to_waypoint_id,
+        ) {
+            let (neighbor_waypoint_id, from_ident_value, to_ident_value, from_value, to_value) =
+                if waypoint_id == from_waypoint_id {
+                    (
+                        to_waypoint_id,
+                        from_ident.clone(),
+                        to_ident.clone(),
+                        from,
+                        to,
+                    )
+                } else {
+                    (
+                        from_waypoint_id,
+                        to_ident.clone(),
+                        from_ident.clone(),
+                        to,
+                        from,
+                    )
+                };
+
+            edges.push(AirwayEdge {
+                neighbor_waypoint_id,
+                segment: RouteAirwaySegment {
+                    airway_name: airway_name.clone(),
+                    airway_type: airway_type.clone(),
+                    route_type: route_type.clone(),
+                    direction: direction.clone(),
+                    minimum_altitude,
+                    maximum_altitude,
+                    from_ident: from_ident_value,
+                    to_ident: to_ident_value,
+                    from: from_value,
+                    to: to_value,
+                    distance_nm: distance_nm(from_value, to_value),
+                },
+            });
+        }
+    }
+
+    Ok(edges)
+}
+
+fn airway_allows_departure(
+    direction: Option<&str>,
+    current_waypoint_id: i64,
+    from_waypoint_id: i64,
+    to_waypoint_id: i64,
+) -> bool {
+    let normalized = direction.unwrap_or("N").trim().to_ascii_uppercase();
+    match normalized.as_str() {
+        "F" => current_waypoint_id == from_waypoint_id,
+        "B" => current_waypoint_id == to_waypoint_id,
+        _ => current_waypoint_id == from_waypoint_id || current_waypoint_id == to_waypoint_id,
+    }
+}
+
+fn polyline_distance_nm(path: &[ProcedureLegPoint]) -> f64 {
+    path.windows(2)
+        .map(|segment| distance_nm(segment[0].position, segment[1].position))
+        .sum()
+}
+
 fn procedure_summary_from_row(row: &ProcedureRow) -> ProcedureSummary {
     let procedure_kind = classify_procedure_kind(
         &row.procedure_type,
@@ -711,7 +1313,11 @@ fn classify_procedure_kind(
     }
 }
 
-fn search_airports(connection: &Connection, pattern: &str, limit: i64) -> Result<Vec<SearchResultItem>> {
+fn search_airports(
+    connection: &Connection,
+    pattern: &str,
+    limit: i64,
+) -> Result<Vec<SearchResultItem>> {
     let mut statement = connection.prepare(
         "
         select
@@ -841,7 +1447,11 @@ fn search_nav_entities(
     rows.collect()
 }
 
-fn search_airways(connection: &Connection, pattern: &str, limit: i64) -> Result<Vec<SearchResultItem>> {
+fn search_airways(
+    connection: &Connection,
+    pattern: &str,
+    limit: i64,
+) -> Result<Vec<SearchResultItem>> {
     let mut statement = connection.prepare(
         "
         select
@@ -896,7 +1506,11 @@ fn search_airways(connection: &Connection, pattern: &str, limit: i64) -> Result<
     rows.collect()
 }
 
-fn search_procedures(connection: &Connection, pattern: &str, limit: i64) -> Result<Vec<SearchResultItem>> {
+fn search_procedures(
+    connection: &Connection,
+    pattern: &str,
+    limit: i64,
+) -> Result<Vec<SearchResultItem>> {
     let mut statement = connection.prepare(
         "
         select
@@ -1260,7 +1874,8 @@ mod tests {
             lon: 117.0,
         };
 
-        let kind = classify_procedure_kind("GPS", Some("D"), Some(first), Some(last), airport, false);
+        let kind =
+            classify_procedure_kind("GPS", Some("D"), Some(first), Some(last), airport, false);
         assert!(matches!(kind, ProcedureKind::Sid));
     }
 
@@ -1279,7 +1894,8 @@ mod tests {
             lon: 116.01,
         };
 
-        let kind = classify_procedure_kind("GPS", Some("A"), Some(first), Some(last), airport, false);
+        let kind =
+            classify_procedure_kind("GPS", Some("A"), Some(first), Some(last), airport, false);
         assert!(matches!(kind, ProcedureKind::Star));
     }
 
@@ -1321,5 +1937,65 @@ mod tests {
         let airport = LatLon { lat: 0.0, lon: 0.0 };
         let kind = classify_procedure_kind("VOR", Some("A"), None, None, airport, false);
         assert!(matches!(kind, ProcedureKind::Approach));
+    }
+
+    #[test]
+    fn extracts_sid_endpoint_from_last_named_fix() {
+        let path = vec![
+            ProcedureLegPoint {
+                ident: Some("DER01".to_string()),
+                leg_type: Some("DF".to_string()),
+                position: LatLon {
+                    lat: 40.09,
+                    lon: 116.61,
+                },
+            },
+            ProcedureLegPoint {
+                ident: Some("BOTPU".to_string()),
+                leg_type: Some("TF".to_string()),
+                position: LatLon {
+                    lat: 39.98,
+                    lon: 115.47,
+                },
+            },
+        ];
+
+        let endpoint = extract_route_endpoint(&path, ProcedureKind::Sid).expect("sid endpoint");
+        assert_eq!(endpoint.ident.as_deref(), Some("BOTPU"));
+    }
+
+    #[test]
+    fn extracts_star_endpoint_from_first_named_fix() {
+        let path = vec![
+            ProcedureLegPoint {
+                ident: Some("AND".to_string()),
+                leg_type: Some("TF".to_string()),
+                position: LatLon {
+                    lat: 31.58,
+                    lon: 121.91,
+                },
+            },
+            ProcedureLegPoint {
+                ident: Some("IA340".to_string()),
+                leg_type: Some("TF".to_string()),
+                position: LatLon {
+                    lat: 31.24,
+                    lon: 121.83,
+                },
+            },
+        ];
+
+        let endpoint = extract_route_endpoint(&path, ProcedureKind::Star).expect("star endpoint");
+        assert_eq!(endpoint.ident.as_deref(), Some("AND"));
+    }
+
+    #[test]
+    fn obeys_airway_directionality_rules() {
+        assert!(airway_allows_departure(Some("N"), 10, 10, 20));
+        assert!(airway_allows_departure(Some("N"), 20, 10, 20));
+        assert!(airway_allows_departure(Some("F"), 10, 10, 20));
+        assert!(!airway_allows_departure(Some("F"), 20, 10, 20));
+        assert!(airway_allows_departure(Some("B"), 20, 10, 20));
+        assert!(!airway_allows_departure(Some("B"), 10, 10, 20));
     }
 }

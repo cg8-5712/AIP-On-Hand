@@ -154,6 +154,52 @@ export type SearchResponse = {
   results: SearchResultItem[];
 };
 
+export type RouteProcedureOption = {
+  procedureId: number;
+  name: string;
+  arincName: string;
+  procedureType: string;
+  runwayName?: string | null;
+};
+
+export type RouteProcedurePoint = {
+  ident: string;
+  location: LatLon;
+  minimumProcedureDistanceNm: number;
+  procedures: RouteProcedureOption[];
+};
+
+export type RouteAirwaySegment = {
+  airwayName: string;
+  airwayType: string;
+  routeType?: string | null;
+  direction?: string | null;
+  minimumAltitude?: number | null;
+  maximumAltitude?: number | null;
+  fromIdent: string;
+  toIdent: string;
+  from: LatLon;
+  to: LatLon;
+  distanceNm: number;
+};
+
+export type RoutePlanCandidate = {
+  totalDistanceNm: number;
+  airwayDistanceNm: number;
+  departure: RouteProcedurePoint;
+  airways: RouteAirwaySegment[];
+  arrival: RouteProcedurePoint;
+  approaches: RouteProcedureOption[];
+};
+
+export type RoutePlanResponse = {
+  departureAirport: ProcedureAirport;
+  arrivalAirport: ProcedureAirport;
+  cruiseAltitudeFt: number;
+  candidates: RoutePlanCandidate[];
+  notes: string[];
+};
+
 export type Bounds = {
   west: number;
   south: number;

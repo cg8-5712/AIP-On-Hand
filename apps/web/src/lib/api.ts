@@ -5,6 +5,7 @@ import type {
   HealthResponse,
   MapLayersResponse,
   ProcedureGeometryResponse,
+  RoutePlanResponse,
   SearchResponse,
   VersionResponse,
 } from "../types/api";
@@ -81,6 +82,27 @@ export function searchNavdata(query: string, options?: RequestOptions) {
   });
 
   return requestJson<SearchResponse>(`/api/v1/search?${params.toString()}`, options);
+}
+
+type RoutePlanOptions = RequestOptions & {
+  departure: string;
+  arrival: string;
+  cruiseAltitudeFt: number;
+  limit?: number;
+};
+
+export function planRoute(options: RoutePlanOptions) {
+  const params = new URLSearchParams({
+    departure: options.departure,
+    arrival: options.arrival,
+    cruiseAltitudeFt: String(options.cruiseAltitudeFt),
+  });
+
+  if (typeof options.limit === "number" && options.limit > 0) {
+    params.set("limit", String(options.limit));
+  }
+
+  return requestJson<RoutePlanResponse>(`/api/v1/routes/plan?${params.toString()}`, options);
 }
 
 type AirportOverviewOptions = RequestOptions & {

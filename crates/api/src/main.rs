@@ -29,9 +29,9 @@ enum ApiError {
 impl fmt::Display for ApiError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NotFound(message)
-            | Self::Upstream(message)
-            | Self::Internal(message) => formatter.write_str(message),
+            Self::NotFound(message) | Self::Upstream(message) | Self::Internal(message) => {
+                formatter.write_str(message)
+            }
         }
     }
 }
@@ -97,6 +97,15 @@ struct SearchQuery {
 #[serde(rename_all = "camelCase")]
 struct AirportOverviewQuery {
     history_hours: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RoutePlanQuery {
+    departure: String,
+    arrival: String,
+    cruise_altitude_ft: i64,
+    limit: Option<usize>,
 }
 
 #[get("/api/v1/health")]
@@ -201,6 +210,37 @@ async fn airport_overview(
     Ok(Json(payload))
 }
 
+#[get("/api/v1/routes/plan")]
+async fn route_plan(
+    state: Data<AppState>,
+    query: Query<RoutePlanQuery>,
+) -> Result<Json<aip_domain::RoutePlanResponse>, ApiError> {
+    let departure = query.departure.trim();
+    let arrival = query.arrival.trim();
+    if departure.is_empty() || arrival.is_empty() {
+        return Err(ApiError::Internal(
+            "departure and arrival airport identifiers are required".to_string(),
+        ));
+    }
+
+    let payload = state
+        .nav_db
+        .plan_routes(
+            departure,
+            arrival,
+            query.cruise_altitude_ft,
+            query.limit.unwrap_or(5),
+        )
+        .map_err(|error| ApiError::Internal(format!("failed to plan route: {error}")))?
+        .ok_or_else(|| {
+            ApiError::NotFound(format!(
+                "route planning airports were not found: `{departure}` -> `{arrival}`"
+            ))
+        })?;
+
+    Ok(Json(payload))
+}
+
 fn map_weather_error(error: WeatherError) -> ApiError {
     match error {
         WeatherError::InvalidInput(message) => ApiError::Internal(message),
@@ -230,7 +270,7 @@ fn port() -> u16 {
 fn nav_db_path() -> PathBuf {
     env::var("AIP_NAVDB_PATH")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(r"F:\bian\jsproject\Open-Navigraph\data\little_navmap_navigraph.sqlite"))
+        .unwrap_or_else(|_| PathBuf::from(r"D:\little_navmap_navigraph.sqlite"))
 }
 
 #[actix_web::main]
@@ -276,6 +316,7 @@ async fn main() -> io::Result<()> {
             .service(airport_procedures)
             .service(airport_overview)
             .service(procedure_geometry)
+            .service(route_plan)
             .service(search)
     })
     .bind(bind_address)?
