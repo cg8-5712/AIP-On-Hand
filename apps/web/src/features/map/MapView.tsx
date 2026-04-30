@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { Bounds, MapLayersResponse, ProcedureGeometryResponse } from "../../types/api";
-import type { BasemapTone, MapFocusRequest } from "../app/types";
+import type { BasemapTone, MapFocusRequest, RouteMapOverlay } from "../app/types";
 
 type LayerVisibility = {
   airports: boolean;
@@ -21,6 +21,7 @@ type MapViewProps = {
   layers: MapLayersResponse | null;
   selectedAirportIdent: string | null;
   selectedProcedure: ProcedureGeometryResponse | null;
+  routeOverlay: RouteMapOverlay | null;
   focusRequest: MapFocusRequest | null;
   basemapTone: BasemapTone;
   visibility: LayerVisibility;
@@ -66,6 +67,7 @@ export function MapView({
   layers,
   selectedAirportIdent,
   selectedProcedure,
+  routeOverlay,
   focusRequest,
   basemapTone,
   visibility,
@@ -85,6 +87,7 @@ export function MapView({
   const airportLayerRef = useRef<L.LayerGroup | null>(null);
   const selectedAirportLayerRef = useRef<L.LayerGroup | null>(null);
   const procedureLayerRef = useRef<L.LayerGroup | null>(null);
+  const routeOverlayLayerRef = useRef<L.LayerGroup | null>(null);
   const lastHandledFocusRequestIdRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -124,6 +127,7 @@ export function MapView({
     airportLayerRef.current = L.layerGroup().addTo(map);
     selectedAirportLayerRef.current = L.layerGroup().addTo(map);
     procedureLayerRef.current = L.layerGroup().addTo(map);
+    routeOverlayLayerRef.current = L.layerGroup().addTo(map);
 
     const publishViewport = () => {
       const bounds = map.getBounds();
@@ -171,6 +175,7 @@ export function MapView({
       airportLayerRef.current = null;
       selectedAirportLayerRef.current = null;
       procedureLayerRef.current = null;
+      routeOverlayLayerRef.current = null;
     };
   }, [onViewportChange]);
 
@@ -357,6 +362,51 @@ export function MapView({
   }, [selectedProcedure]);
 
   useEffect(() => {
+    const routeOverlayLayer = routeOverlayLayerRef.current;
+
+    if (!routeOverlayLayer) {
+      return;
+    }
+
+    routeOverlayLayer.clearLayers();
+
+    if (!routeOverlay) {
+      return;
+    }
+
+    const airwayPath = routeOverlay.selection.candidate.airways.flatMap((segment, index) => {
+      const points = [
+        [segment.from.lat, segment.from.lon] as L.LatLngTuple,
+        [segment.to.lat, segment.to.lon] as L.LatLngTuple,
+      ];
+
+      return index === 0 ? points : points.slice(1);
+    });
+
+    if (airwayPath.length > 1) {
+      L.polyline(airwayPath, {
+        color: "#67e8f9",
+        weight: 4.8,
+        opacity: 0.95,
+      }).addTo(routeOverlayLayer);
+    }
+
+    for (const point of airwayPath) {
+      L.circleMarker(point, {
+        radius: 4.5,
+        weight: 2,
+        color: "#e0f2fe",
+        fillColor: "#22d3ee",
+        fillOpacity: 0.95,
+      }).addTo(routeOverlayLayer);
+    }
+
+    renderRouteProcedure(routeOverlayLayer, routeOverlay.departureProcedure, "#34d399", "#bbf7d0");
+    renderRouteProcedure(routeOverlayLayer, routeOverlay.arrivalProcedure, "#f59e0b", "#fde68a");
+    renderRouteProcedure(routeOverlayLayer, routeOverlay.approachProcedure, "#e879f9", "#f5d0fe");
+  }, [routeOverlay]);
+
+  useEffect(() => {
     const map = mapRef.current;
 
     if (!map || !focusRequest || lastHandledFocusRequestIdRef.current === focusRequest.requestId) {
@@ -442,4 +492,45 @@ export function MapView({
       ref={containerRef}
     />
   );
+}
+
+function renderRouteProcedure(
+  layer: L.LayerGroup,
+  procedure: ProcedureGeometryResponse | null,
+  lineColor: string,
+  pointColor: string,
+) {
+  if (!procedure) {
+    return;
+  }
+
+  const path = procedure.path.map((point) => [point.position.lat, point.position.lon] as L.LatLngTuple);
+  const missedPath = procedure.missedPath.map((point) => [point.position.lat, point.position.lon] as L.LatLngTuple);
+
+  if (path.length > 1) {
+    L.polyline(path, {
+      color: lineColor,
+      weight: 4,
+      opacity: 0.92,
+    }).addTo(layer);
+  }
+
+  if (missedPath.length > 1) {
+    L.polyline(missedPath, {
+      color: lineColor,
+      weight: 3,
+      opacity: 0.78,
+      dashArray: "8 6",
+    }).addTo(layer);
+  }
+
+  for (const point of [...path, ...missedPath]) {
+    L.circleMarker(point, {
+      radius: 4,
+      weight: 2,
+      color: pointColor,
+      fillColor: lineColor,
+      fillOpacity: 0.92,
+    }).addTo(layer);
+  }
 }

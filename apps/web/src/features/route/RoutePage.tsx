@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import type { RoutePreviewSelection } from "../app/types";
 import { planRoute } from "../../lib/api";
 import type {
   RouteAirwaySegment,
@@ -6,6 +7,23 @@ import type {
   RoutePlanResponse,
   RouteProcedureOption,
 } from "../../types/api";
+
+type RoutePageProps = {
+  onRoutePreviewChange?: (selection: RoutePreviewSelection | null) => void;
+};
+
+type CandidateCardProps = {
+  candidate: RoutePlanCandidate;
+  index: number;
+  isActive: boolean;
+  selectedDepartureProcedureId: number | null;
+  selectedArrivalProcedureId: number | null;
+  selectedApproachProcedureId: number | null;
+  onActivate: () => void;
+  onDepartureProcedureSelect: (procedureId: number) => void;
+  onArrivalProcedureSelect: (procedureId: number) => void;
+  onApproachProcedureSelect: (procedureId: number) => void;
+};
 
 function formatDistance(distanceNm: number) {
   return `${Math.round(distanceNm)} nm`;
@@ -60,15 +78,63 @@ function formatAirwaySequence(segments: RouteAirwaySegment[]) {
   return sequence.join(" ");
 }
 
-function CandidateCard({ candidate, index }: { candidate: RoutePlanCandidate; index: number }) {
+function defaultProcedureId(procedures: RouteProcedureOption[]) {
+  return procedures[0]?.procedureId ?? null;
+}
+
+function ProcedureChip({
+  label,
+  isActive,
+  onClick,
+}: {
+  label: string;
+  isActive: boolean;
+  onClick: () => void;
+}) {
   return (
-    <article className="rounded-[24px] border border-slate-700/70 bg-slate-950/60 p-5">
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full border px-3 py-1 text-xs transition ${
+        isActive
+          ? "border-slate-100/80 bg-slate-100/20 text-slate-50"
+          : "border-slate-300/18 bg-slate-300/8 text-slate-200 hover:border-slate-200/40 hover:bg-slate-200/12"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+function CandidateCard({
+  candidate,
+  index,
+  isActive,
+  selectedDepartureProcedureId,
+  selectedArrivalProcedureId,
+  selectedApproachProcedureId,
+  onActivate,
+  onDepartureProcedureSelect,
+  onArrivalProcedureSelect,
+  onApproachProcedureSelect,
+}: CandidateCardProps) {
+  return (
+    <article
+      className={`rounded-[24px] border p-5 transition ${
+        isActive
+          ? "border-sky-300/60 bg-slate-950/70 shadow-[0_0_0_1px_rgba(125,211,252,0.18)]"
+          : "border-slate-700/70 bg-slate-950/60"
+      }`}
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="section-kicker">Candidate {index + 1}</p>
           <h3 className="section-title mt-1 text-[1.15rem]">{formatAirwaySequence(candidate.airways)}</h3>
+          <p className="mt-2 text-sm text-slate-300">
+            Select this candidate, then choose the exact SID, STAR, and approach to draw on the map.
+          </p>
         </div>
-        <div className="grid min-w-[180px] gap-2 text-right">
+        <div className="grid min-w-[180px] gap-3 text-right">
           <div>
             <p className="m-0 text-[0.72rem] uppercase tracking-[0.28em] text-slate-500">Total</p>
             <p className="m-0 font-mono text-[1.1rem] text-slate-100">
@@ -81,6 +147,17 @@ function CandidateCard({ candidate, index }: { candidate: RoutePlanCandidate; in
               {formatDistance(candidate.airwayDistanceNm)}
             </p>
           </div>
+          <button
+            type="button"
+            onClick={onActivate}
+            className={`rounded-2xl border px-4 py-2 text-sm font-medium transition ${
+              isActive
+                ? "border-sky-200/70 bg-sky-300/20 text-sky-50"
+                : "border-sky-300/30 bg-sky-300/10 text-sky-100 hover:border-sky-200/60 hover:bg-sky-300/18"
+            }`}
+          >
+            {isActive ? "Displayed on map" : "Show on map"}
+          </button>
         </div>
       </div>
 
@@ -93,12 +170,12 @@ function CandidateCard({ candidate, index }: { candidate: RoutePlanCandidate; in
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             {candidate.departure.procedures.map((procedure) => (
-              <span
+              <ProcedureChip
                 key={procedure.procedureId}
-                className="rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1 text-xs text-emerald-100"
-              >
-                {formatProcedureLabel(procedure)}
-              </span>
+                label={formatProcedureLabel(procedure)}
+                isActive={selectedDepartureProcedureId === procedure.procedureId}
+                onClick={() => onDepartureProcedureSelect(procedure.procedureId)}
+              />
             ))}
           </div>
         </section>
@@ -136,12 +213,12 @@ function CandidateCard({ candidate, index }: { candidate: RoutePlanCandidate; in
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             {candidate.arrival.procedures.map((procedure) => (
-              <span
+              <ProcedureChip
                 key={procedure.procedureId}
-                className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-xs text-amber-100"
-              >
-                {formatProcedureLabel(procedure)}
-              </span>
+                label={formatProcedureLabel(procedure)}
+                isActive={selectedArrivalProcedureId === procedure.procedureId}
+                onClick={() => onArrivalProcedureSelect(procedure.procedureId)}
+              />
             ))}
           </div>
         </section>
@@ -155,12 +232,12 @@ function CandidateCard({ candidate, index }: { candidate: RoutePlanCandidate; in
         <div className="mt-3 flex flex-wrap gap-2">
           {candidate.approaches.length > 0 ? (
             candidate.approaches.map((procedure) => (
-              <span
+              <ProcedureChip
                 key={procedure.procedureId}
-                className="rounded-full border border-fuchsia-300/20 bg-fuchsia-300/10 px-3 py-1 text-xs text-fuchsia-100"
-              >
-                {formatProcedureLabel(procedure)}
-              </span>
+                label={formatProcedureLabel(procedure)}
+                isActive={selectedApproachProcedureId === procedure.procedureId}
+                onClick={() => onApproachProcedureSelect(procedure.procedureId)}
+              />
             ))
           ) : (
             <span className="text-sm text-slate-400">No published approach candidates were resolved.</span>
@@ -171,7 +248,7 @@ function CandidateCard({ candidate, index }: { candidate: RoutePlanCandidate; in
   );
 }
 
-export function RoutePage() {
+export function RoutePage({ onRoutePreviewChange }: RoutePageProps) {
   const [departure, setDeparture] = useState("");
   const [arrival, setArrival] = useState("");
   const [cruiseAltitudeFt, setCruiseAltitudeFt] = useState("36000");
@@ -179,6 +256,10 @@ export function RoutePage() {
   const [result, setResult] = useState<RoutePlanResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [activeCandidateIndex, setActiveCandidateIndex] = useState<number | null>(null);
+  const [selectedDepartureProcedureId, setSelectedDepartureProcedureId] = useState<number | null>(null);
+  const [selectedArrivalProcedureId, setSelectedArrivalProcedureId] = useState<number | null>(null);
+  const [selectedApproachProcedureId, setSelectedApproachProcedureId] = useState<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -186,6 +267,35 @@ export function RoutePage() {
       abortRef.current?.abort();
     };
   }, []);
+
+  useEffect(() => {
+    if (activeCandidateIndex === null || !result?.candidates[activeCandidateIndex]) {
+      onRoutePreviewChange?.(null);
+      return;
+    }
+
+    const candidate = result.candidates[activeCandidateIndex];
+    onRoutePreviewChange?.({
+      candidate,
+      departureProcedureId: selectedDepartureProcedureId ?? defaultProcedureId(candidate.departure.procedures),
+      arrivalProcedureId: selectedArrivalProcedureId ?? defaultProcedureId(candidate.arrival.procedures),
+      approachProcedureId: selectedApproachProcedureId ?? defaultProcedureId(candidate.approaches),
+    });
+  }, [
+    activeCandidateIndex,
+    onRoutePreviewChange,
+    result,
+    selectedApproachProcedureId,
+    selectedArrivalProcedureId,
+    selectedDepartureProcedureId,
+  ]);
+
+  function activateCandidate(candidate: RoutePlanCandidate, index: number) {
+    setActiveCandidateIndex(index);
+    setSelectedDepartureProcedureId(defaultProcedureId(candidate.departure.procedures));
+    setSelectedArrivalProcedureId(defaultProcedureId(candidate.arrival.procedures));
+    setSelectedApproachProcedureId(defaultProcedureId(candidate.approaches));
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -198,12 +308,14 @@ export function RoutePage() {
     if (!normalizedDeparture || !normalizedArrival) {
       setError("Departure and arrival airport identifiers are required.");
       setResult(null);
+      onRoutePreviewChange?.(null);
       return;
     }
 
     if (!Number.isFinite(parsedCruiseAltitude) || parsedCruiseAltitude <= 0) {
       setError("Cruise altitude must be a positive number in feet.");
       setResult(null);
+      onRoutePreviewChange?.(null);
       return;
     }
 
@@ -213,6 +325,11 @@ export function RoutePage() {
 
     setIsLoading(true);
     setError(null);
+    setActiveCandidateIndex(null);
+    setSelectedDepartureProcedureId(null);
+    setSelectedArrivalProcedureId(null);
+    setSelectedApproachProcedureId(null);
+    onRoutePreviewChange?.(null);
 
     try {
       const response = await planRoute({
@@ -338,6 +455,33 @@ export function RoutePage() {
                 key={`${candidate.departure.ident}-${candidate.arrival.ident}-${index}`}
                 candidate={candidate}
                 index={index}
+                isActive={activeCandidateIndex === index}
+                selectedDepartureProcedureId={activeCandidateIndex === index ? selectedDepartureProcedureId : null}
+                selectedArrivalProcedureId={activeCandidateIndex === index ? selectedArrivalProcedureId : null}
+                selectedApproachProcedureId={activeCandidateIndex === index ? selectedApproachProcedureId : null}
+                onActivate={() => {
+                  if (activeCandidateIndex !== index) {
+                    activateCandidate(candidate, index);
+                  }
+                }}
+                onDepartureProcedureSelect={(procedureId) => {
+                  if (activeCandidateIndex !== index) {
+                    activateCandidate(candidate, index);
+                  }
+                  setSelectedDepartureProcedureId(procedureId);
+                }}
+                onArrivalProcedureSelect={(procedureId) => {
+                  if (activeCandidateIndex !== index) {
+                    activateCandidate(candidate, index);
+                  }
+                  setSelectedArrivalProcedureId(procedureId);
+                }}
+                onApproachProcedureSelect={(procedureId) => {
+                  if (activeCandidateIndex !== index) {
+                    activateCandidate(candidate, index);
+                  }
+                  setSelectedApproachProcedureId(procedureId);
+                }}
               />
             ))
           ) : (

@@ -1,4 +1,10 @@
-import type { Bounds, LatLon, ProcedureKind } from "../../types/api";
+import type {
+  Bounds,
+  LatLon,
+  ProcedureGeometryResponse,
+  ProcedureKind,
+  RoutePlanCandidate,
+} from "../../types/api";
 
 export type LayerVisibility = {
   airports: boolean;
@@ -35,6 +41,20 @@ export type MapFocusRequestPayload =
 
 export type MapFocusRequest = MapFocusRequestPayload & {
   requestId: number;
+};
+
+export type RoutePreviewSelection = {
+  candidate: RoutePlanCandidate;
+  departureProcedureId: number | null;
+  arrivalProcedureId: number | null;
+  approachProcedureId: number | null;
+};
+
+export type RouteMapOverlay = {
+  selection: RoutePreviewSelection;
+  departureProcedure: ProcedureGeometryResponse | null;
+  arrivalProcedure: ProcedureGeometryResponse | null;
+  approachProcedure: ProcedureGeometryResponse | null;
 };
 
 export const initialVisibility: LayerVisibility = {

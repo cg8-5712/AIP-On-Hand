@@ -1,12 +1,19 @@
 import { MapView } from "../map/MapView";
 import { FilterChip, LegendItem, MapBadge } from "../shared/PanelPrimitives";
-import type { BasemapTone, LayerVisibility, MapFocusRequest, ViewportState } from "../app/types";
+import type {
+  BasemapTone,
+  LayerVisibility,
+  MapFocusRequest,
+  RouteMapOverlay,
+  ViewportState,
+} from "../app/types";
 import type { MapLayersResponse, ProcedureGeometryResponse } from "../../types/api";
 
 type MapStageProps = {
   layers: MapLayersResponse | null;
   selectedAirportIdent: string | null;
   selectedProcedure: ProcedureGeometryResponse | null;
+  routeOverlay: RouteMapOverlay | null;
   focusRequest: MapFocusRequest | null;
   basemapTone: BasemapTone;
   visibility: LayerVisibility;
@@ -20,6 +27,7 @@ export function MapStage({
   layers,
   selectedAirportIdent,
   selectedProcedure,
+  routeOverlay,
   focusRequest,
   basemapTone,
   visibility,
@@ -30,6 +38,9 @@ export function MapStage({
 }: MapStageProps) {
   const selectedProcedureSummary = selectedProcedure?.summary ?? null;
   const selectedPathCount = (selectedProcedure?.path.length ?? 0) + (selectedProcedure?.missedPath.length ?? 0);
+  const selectedRouteLabel = routeOverlay
+    ? `${routeOverlay.selection.candidate.departure.ident} -> ${routeOverlay.selection.candidate.arrival.ident}`
+    : "idle";
 
   return (
     <main className="min-h-0 xl:overflow-hidden">
@@ -38,6 +49,7 @@ export function MapStage({
           layers={layers}
           selectedAirportIdent={selectedAirportIdent}
           selectedProcedure={selectedProcedure}
+          routeOverlay={routeOverlay}
           focusRequest={focusRequest}
           basemapTone={basemapTone}
           visibility={visibility}
@@ -62,7 +74,8 @@ export function MapStage({
               <MapBadge label="Selected" value={selectedAirportIdent ?? "none"} />
               <MapBadge label="Procedure" value={selectedProcedureSummary?.procedureKind ?? "idle"} />
               <MapBadge label="Path Points" value={String(selectedPathCount)} />
-              <div className="overlay-card pointer-events-auto min-w-[240px]">
+              <MapBadge label="Route" value={selectedRouteLabel} />
+              <div className="overlay-card pointer-events-auto min-w-[240px] md:col-span-4">
                 <p className="stat-label">Basemap</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <FilterChip
@@ -96,10 +109,22 @@ export function MapStage({
                 <LegendItem colorClass="bg-pink-300" label="NDB" />
                 <LegendItem colorClass="bg-amber-300" label="Airports" />
                 <LegendItem colorClass="bg-orange-400" label="Selected procedure" />
+                <LegendItem colorClass="bg-cyan-200" label="Selected route" />
               </div>
             </div>
 
-            {selectedProcedureSummary ? (
+            {routeOverlay ? (
+              <div className="overlay-card">
+                <p className="section-kicker">Displayed Route</p>
+                <p className="mt-1 text-[1rem] font-semibold text-slate-50">
+                  {routeOverlay.selection.candidate.departure.ident} to {routeOverlay.selection.candidate.arrival.ident}
+                </p>
+                <p className="mt-1 text-sm text-slate-300">
+                  Airway {Math.round(routeOverlay.selection.candidate.airwayDistanceNm)} nm / Total{" "}
+                  {Math.round(routeOverlay.selection.candidate.totalDistanceNm)} nm
+                </p>
+              </div>
+            ) : selectedProcedureSummary ? (
               <div className="overlay-card">
                 <p className="section-kicker">Highlighted Procedure</p>
                 <p className="mt-1 text-[1rem] font-semibold text-slate-50">

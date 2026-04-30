@@ -9,6 +9,8 @@ import {
   type MapFocusRequest,
   type MapFocusRequestPayload,
   type ProcedureFilter,
+  type RouteMapOverlay,
+  type RoutePreviewSelection,
   type ViewportState,
 } from "./features/app/types";
 import { EaipPage } from "./features/eaip/EaipPage";
@@ -32,6 +34,7 @@ import type {
   AirportProceduresResponse,
   AirportWeatherOverviewResponse,
   HealthResponse,
+  LatLon,
   MapLayersResponse,
   ProcedureGeometryResponse,
   SearchResultItem,
@@ -59,6 +62,30 @@ function getInitialBasemapTone(): BasemapTone {
   return "classic";
 }
 
+function routeOverlayPoints(overlay: RouteMapOverlay): LatLon[] {
+  const points: LatLon[] = [];
+
+  for (const segment of overlay.selection.candidate.airways) {
+    points.push(segment.from, segment.to);
+  }
+
+  for (const geometry of [
+    overlay.departureProcedure,
+    overlay.arrivalProcedure,
+    overlay.approachProcedure,
+  ]) {
+    if (!geometry) {
+      continue;
+    }
+
+    for (const point of [...geometry.path, ...geometry.missedPath]) {
+      points.push(point.position);
+    }
+  }
+
+  return points;
+}
+
 export default function App() {
   const [activePage, setActivePage] = useState<AppPage>("map");
   const [bootstrap, setBootstrap] = useState<BootstrapState>({});
@@ -84,6 +111,8 @@ export default function App() {
   const [isSearching, setIsSearching] = useState(false);
   const [focusRequest, setFocusRequest] = useState<MapFocusRequest | null>(null);
   const [basemapTone, setBasemapTone] = useState<BasemapTone>(getInitialBasemapTone);
+  const [selectedRoutePreview, setSelectedRoutePreview] = useState<RoutePreviewSelection | null>(null);
+  const [routeMapOverlay, setRouteMapOverlay] = useState<RouteMapOverlay | null>(null);
   const deferredAirportFilter = useDeferredValue(airportFilter);
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const focusRequestIdRef = useRef(0);
@@ -263,6 +292,80 @@ export default function App() {
       controller.abort();
     };
   }, [selectedProcedureId]);
+
+  useEffect(() => {
+    if (!selectedRoutePreview) {
+      setRouteMapOverlay(null);
+      return;
+    }
+
+    const currentSelection = selectedRoutePreview;
+    const controller = new AbortController();
+    setProcedureError(null);
+
+    async function loadRouteOverlay() {
+      const loadGeometry = async (procedureId: number | null) => {
+        if (!procedureId) {
+          return null;
+        }
+
+        if (selectedProcedureGeometry?.summary.id === procedureId) {
+          return selectedProcedureGeometry;
+        }
+
+        return getProcedureGeometry(procedureId, { signal: controller.signal });
+      };
+
+      try {
+        const [departureProcedure, arrivalProcedure, approachProcedure] = await Promise.all([
+          loadGeometry(currentSelection.departureProcedureId),
+          loadGeometry(currentSelection.arrivalProcedureId),
+          loadGeometry(currentSelection.approachProcedureId),
+        ]);
+
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setRouteMapOverlay({
+          selection: currentSelection,
+          departureProcedure,
+          arrivalProcedure,
+          approachProcedure,
+        });
+        setProcedureError(null);
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setRouteMapOverlay(null);
+        setProcedureError(error instanceof Error ? error.message : "Failed to load selected route procedures");
+      }
+    }
+
+    loadRouteOverlay();
+
+    return () => {
+      controller.abort();
+    };
+  }, [selectedProcedureGeometry, selectedRoutePreview]);
+
+  useEffect(() => {
+    if (!routeMapOverlay) {
+      return;
+    }
+
+    const points = routeOverlayPoints(routeMapOverlay);
+    if (points.length === 0) {
+      return;
+    }
+
+    queueMapFocus({
+      kind: "bounds",
+      points,
+    });
+  }, [routeMapOverlay]);
 
   const visibleAirports = useMemo(() => {
     const airports = layers?.airports ?? [];
@@ -547,7 +650,9 @@ export default function App() {
                 />
               ) : null}
 
-              {activePage === "route" ? <RoutePage /> : null}
+              {activePage === "route" ? (
+                <RoutePage onRoutePreviewChange={setSelectedRoutePreview} />
+              ) : null}
               {activePage === "fuel" ? (
                 <FuelPage
                   selectedAirport={selectedAirport}
@@ -562,6 +667,7 @@ export default function App() {
             layers={layers}
             selectedAirportIdent={selectedAirportIdent}
             selectedProcedure={selectedProcedureGeometry}
+            routeOverlay={routeMapOverlay}
             focusRequest={focusRequest}
             basemapTone={basemapTone}
             visibility={visibility}

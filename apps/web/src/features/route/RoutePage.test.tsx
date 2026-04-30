@@ -10,8 +10,9 @@ describe("RoutePage", () => {
     vi.restoreAllMocks();
   });
 
-  it("submits route planning inputs and renders candidate routes", async () => {
+  it("submits route planning inputs, renders candidate routes, and reports the selected route", async () => {
     const user = userEvent.setup();
+    const previewSpy = vi.fn();
 
     vi.spyOn(api, "planRoute").mockResolvedValue({
       departureAirport: {
@@ -29,7 +30,7 @@ describe("RoutePage", () => {
         location: { lon: 121.805, lat: 31.1434 },
       },
       cruiseAltitudeFt: 36000,
-      notes: ["候选按程序点分组。"],
+      notes: ["Candidates are grouped by procedure point."],
       candidates: [
         {
           totalDistanceNm: 598,
@@ -90,7 +91,7 @@ describe("RoutePage", () => {
       ],
     });
 
-    render(<RoutePage />);
+    render(<RoutePage onRoutePreviewChange={previewSpy} />);
 
     await user.type(screen.getByLabelText(/departure/i), "zbaa");
     await user.type(screen.getByLabelText(/arrival/i), "zspd");
@@ -111,5 +112,15 @@ describe("RoutePage", () => {
     expect(screen.getByText(/BOTP7X/i)).toBeInTheDocument();
     expect(screen.getByText(/AND91A/i)).toBeInTheDocument();
     expect(screen.getByText(/ILS34L/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /show on map/i }));
+
+    expect(previewSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        departureProcedureId: 71967,
+        arrivalProcedureId: 104624,
+        approachProcedureId: 204001,
+      }),
+    );
   });
 });
