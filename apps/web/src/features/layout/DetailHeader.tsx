@@ -37,7 +37,7 @@ const pageCopy: Record<AppPage, { title: string; description: string }> = {
   },
   route: {
     title: "Route Desk",
-    description: "This panel is reserved for route construction, legality checks, and export workflow.",
+    description: "Build a route, pin it on the map, and keep it visible until you explicitly clear it.",
   },
   fuel: {
     title: "Fuel Desk",
@@ -69,6 +69,10 @@ export function DetailHeader({
   procedureError,
 }: DetailHeaderProps) {
   const copy = pageCopy[activePage];
+  const metricGridClass =
+    activePage === "route" ? "grid gap-3 sm:grid-cols-2" : "grid gap-3 sm:grid-cols-2 2xl:grid-cols-3";
+  const statusGridClass =
+    activePage === "route" ? "grid gap-3 sm:grid-cols-2" : "grid gap-3 sm:grid-cols-2 2xl:grid-cols-3";
 
   return (
     <div className="sticky top-0 z-10 border-b border-slate-700/60 bg-slate-950/88 px-5 py-5 backdrop-blur-xl">
@@ -113,7 +117,7 @@ export function DetailHeader({
           )}
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div className={metricGridClass}>
           <HeroMetric
             label="Backend"
             value={backendStatus}
@@ -123,10 +127,15 @@ export function DetailHeader({
           <HeroMetric label="Flight Cat" value={weatherFlightCategory} accentClass="text-amber-200" />
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div className={statusGridClass}>
           <StatusTile label="Selected Airport" value={selectedAirportLabel} detail={stationTypes} />
           <StatusTile label="Procedure" value={selectedProcedureLabel} detail="active map selection" />
-          <StatusTile label="Current Page" value={copy.title} detail="right-side map remains visible" />
+          <StatusTile
+            label="Current Page"
+            value={copy.title}
+            detail={activePage === "route" ? "planner and map stay linked" : "right-side map remains visible"}
+            className={activePage === "route" ? "sm:col-span-2" : ""}
+          />
         </div>
 
         {bootstrapError ? <InlineError message={bootstrapError} /> : null}

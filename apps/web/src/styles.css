@@ -72,7 +72,7 @@
   }
 
   .page-frame {
-    @apply relative z-10 mx-auto flex min-h-screen max-w-[1840px] flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8;
+    @apply relative z-10 flex min-h-screen w-full flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8;
   }
 
   @media (min-width: 1280px) {
@@ -127,7 +127,7 @@
   }
 
   .status-tile {
-    @apply flex items-start justify-between gap-3 rounded-[18px] border px-4 py-3;
+    @apply grid gap-2 rounded-[18px] border px-4 py-3;
     border-color: rgba(148, 163, 184, 0.12);
     background: linear-gradient(180deg, rgba(15, 23, 42, 0.72), rgba(2, 6, 23, 0.78));
   }

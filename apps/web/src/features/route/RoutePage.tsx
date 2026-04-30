@@ -120,21 +120,21 @@ function CandidateCard({
 }: CandidateCardProps) {
   return (
     <article
-      className={`rounded-[24px] border p-5 transition ${
+      className={`min-w-0 rounded-[24px] border p-5 transition ${
         isActive
           ? "border-sky-300/60 bg-slate-950/70 shadow-[0_0_0_1px_rgba(125,211,252,0.18)]"
           : "border-slate-700/70 bg-slate-950/60"
       }`}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+      <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
           <p className="section-kicker">Candidate {index + 1}</p>
-          <h3 className="section-title mt-1 text-[1.15rem]">{formatAirwaySequence(candidate.airways)}</h3>
+          <h3 className="section-title mt-1 break-words text-[1.15rem]">{formatAirwaySequence(candidate.airways)}</h3>
           <p className="mt-2 text-sm text-slate-300">
             Select this candidate, then choose the exact SID, STAR, and approach to draw on the map.
           </p>
         </div>
-        <div className="grid min-w-[180px] gap-3 text-right">
+        <div className="grid w-full gap-3 text-left sm:w-auto sm:min-w-[180px] sm:text-right">
           <div>
             <p className="m-0 text-[0.72rem] uppercase tracking-[0.28em] text-slate-500">Total</p>
             <p className="m-0 font-mono text-[1.1rem] text-slate-100">
@@ -161,7 +161,7 @@ function CandidateCard({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_1.25fr_1fr]">
+      <div className="mt-4 grid gap-4 2xl:grid-cols-[1fr_1.15fr_1fr]">
         <section className="rounded-[20px] border border-emerald-400/16 bg-emerald-400/6 p-4">
           <p className="m-0 text-[0.72rem] uppercase tracking-[0.28em] text-emerald-200/80">Departure</p>
           <p className="mt-2 font-mono text-lg text-emerald-100">{candidate.departure.ident}</p>
@@ -297,6 +297,14 @@ export function RoutePage({ onRoutePreviewChange }: RoutePageProps) {
     setSelectedApproachProcedureId(defaultProcedureId(candidate.approaches));
   }
 
+  function clearDisplayedRoute() {
+    setActiveCandidateIndex(null);
+    setSelectedDepartureProcedureId(null);
+    setSelectedArrivalProcedureId(null);
+    setSelectedApproachProcedureId(null);
+    onRoutePreviewChange?.(null);
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -365,56 +373,71 @@ export function RoutePage({ onRoutePreviewChange }: RoutePageProps) {
           procedure selection to the user.
         </p>
 
-        <form className="mt-5 grid gap-3 md:grid-cols-[1fr_1fr_170px_120px_auto]" onSubmit={handleSubmit}>
-          <label className="grid gap-2">
-            <span className="text-xs uppercase tracking-[0.26em] text-slate-400">Departure</span>
-            <input
-              value={departure}
-              onChange={(event) => setDeparture(event.target.value)}
-              placeholder="ZBAA"
-              className="rounded-2xl border border-slate-700/70 bg-slate-950/75 px-4 py-3 font-mono text-sm text-slate-100 outline-none transition focus:border-sky-300/60"
-            />
-          </label>
+        <form className="mt-5 grid gap-4" onSubmit={handleSubmit}>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="grid gap-2">
+              <span className="text-xs uppercase tracking-[0.26em] text-slate-400">Departure</span>
+              <input
+                value={departure}
+                onChange={(event) => setDeparture(event.target.value)}
+                placeholder="ZBAA"
+                className="rounded-2xl border border-slate-700/70 bg-slate-950/75 px-4 py-3 font-mono text-sm text-slate-100 outline-none transition focus:border-sky-300/60"
+              />
+            </label>
 
-          <label className="grid gap-2">
-            <span className="text-xs uppercase tracking-[0.26em] text-slate-400">Arrival</span>
-            <input
-              value={arrival}
-              onChange={(event) => setArrival(event.target.value)}
-              placeholder="ZSPD"
-              className="rounded-2xl border border-slate-700/70 bg-slate-950/75 px-4 py-3 font-mono text-sm text-slate-100 outline-none transition focus:border-sky-300/60"
-            />
-          </label>
+            <label className="grid gap-2">
+              <span className="text-xs uppercase tracking-[0.26em] text-slate-400">Arrival</span>
+              <input
+                value={arrival}
+                onChange={(event) => setArrival(event.target.value)}
+                placeholder="ZSPD"
+                className="rounded-2xl border border-slate-700/70 bg-slate-950/75 px-4 py-3 font-mono text-sm text-slate-100 outline-none transition focus:border-sky-300/60"
+              />
+            </label>
+          </div>
 
-          <label className="grid gap-2">
-            <span className="text-xs uppercase tracking-[0.26em] text-slate-400">Cruise Alt</span>
-            <input
-              value={cruiseAltitudeFt}
-              onChange={(event) => setCruiseAltitudeFt(event.target.value)}
-              placeholder="36000"
-              inputMode="numeric"
-              className="rounded-2xl border border-slate-700/70 bg-slate-950/75 px-4 py-3 font-mono text-sm text-slate-100 outline-none transition focus:border-sky-300/60"
-            />
-          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="grid gap-2">
+              <span className="text-xs uppercase tracking-[0.26em] text-slate-400">Cruise Alt</span>
+              <input
+                value={cruiseAltitudeFt}
+                onChange={(event) => setCruiseAltitudeFt(event.target.value)}
+                placeholder="36000"
+                inputMode="numeric"
+                className="rounded-2xl border border-slate-700/70 bg-slate-950/75 px-4 py-3 font-mono text-sm text-slate-100 outline-none transition focus:border-sky-300/60"
+              />
+            </label>
 
-          <label className="grid gap-2">
-            <span className="text-xs uppercase tracking-[0.26em] text-slate-400">Candidates</span>
-            <input
-              value={limit}
-              onChange={(event) => setLimit(event.target.value)}
-              placeholder="5"
-              inputMode="numeric"
-              className="rounded-2xl border border-slate-700/70 bg-slate-950/75 px-4 py-3 font-mono text-sm text-slate-100 outline-none transition focus:border-sky-300/60"
-            />
-          </label>
+            <label className="grid gap-2">
+              <span className="text-xs uppercase tracking-[0.26em] text-slate-400">Candidates</span>
+              <input
+                value={limit}
+                onChange={(event) => setLimit(event.target.value)}
+                placeholder="5"
+                inputMode="numeric"
+                className="rounded-2xl border border-slate-700/70 bg-slate-950/75 px-4 py-3 font-mono text-sm text-slate-100 outline-none transition focus:border-sky-300/60"
+              />
+            </label>
+          </div>
 
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="rounded-2xl border border-sky-300/30 bg-sky-300/12 px-5 py-3 text-sm font-medium text-sky-100 transition hover:border-sky-200/60 hover:bg-sky-300/20 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isLoading ? "Planning..." : "Plan Route"}
-          </button>
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="rounded-2xl border border-sky-300/30 bg-sky-300/12 px-5 py-3 text-sm font-medium text-sky-100 transition hover:border-sky-200/60 hover:bg-sky-300/20 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isLoading ? "Planning..." : "Plan Route"}
+            </button>
+
+            <button
+              type="button"
+              onClick={clearDisplayedRoute}
+              disabled={activeCandidateIndex === null}
+              className="rounded-2xl border border-slate-300/18 bg-slate-900/55 px-5 py-3 text-sm font-medium text-slate-200 transition hover:border-slate-200/40 hover:bg-slate-900/80 disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              Clear displayed route
+            </button>
+          </div>
         </form>
 
         {error ? <p className="mt-4 text-sm text-rose-300">{error}</p> : null}
@@ -424,14 +447,19 @@ export function RoutePage({ onRoutePreviewChange }: RoutePageProps) {
         <>
           <div className="rounded-[22px] border border-slate-700/60 bg-slate-950/55 p-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
+              <div className="min-w-0 flex-1">
                 <p className="section-kicker">Plan Summary</p>
-                <h3 className="section-title mt-1 text-[1.12rem]">
+                <h3 className="section-title mt-1 break-words text-[1.12rem]">
                   {result.departureAirport.ident} to {result.arrivalAirport.ident} at FL
                   {Math.round(result.cruiseAltitudeFt / 100)}
                 </h3>
+                {activeCandidateIndex !== null ? (
+                  <p className="mt-2 text-sm text-cyan-200">
+                    The selected route is pinned on the map and will stay there until you clear it.
+                  </p>
+                ) : null}
               </div>
-              <div className="grid gap-1 text-right">
+              <div className="grid gap-1 text-left sm:text-right">
                 <p className="m-0 text-[0.72rem] uppercase tracking-[0.28em] text-slate-500">Candidates</p>
                 <p className="m-0 font-mono text-[1.1rem] text-slate-100">{result.candidates.length}</p>
               </div>

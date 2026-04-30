@@ -35,16 +35,15 @@ type StatusTileProps = {
   label: string;
   value: string;
   detail: string;
+  className?: string;
 };
 
-export function StatusTile({ label, value, detail }: StatusTileProps) {
+export function StatusTile({ label, value, detail, className }: StatusTileProps) {
   return (
-    <div className="status-tile">
-      <div>
-        <p className="stat-label">{label}</p>
-        <p className="m-0 mt-2 text-[1rem] font-semibold text-slate-50">{value}</p>
-      </div>
-      <p className="m-0 max-w-[10rem] text-right text-[0.75rem] leading-5 text-slate-500">{detail}</p>
+    <div className={`status-tile ${className ?? ""}`}>
+      <p className="stat-label">{label}</p>
+      <p className="m-0 text-[1rem] font-semibold text-slate-50 break-words">{value}</p>
+      <p className="m-0 text-[0.75rem] leading-5 text-slate-500 break-words">{detail}</p>
     </div>
   );
 }
@@ -141,9 +140,9 @@ type MapBadgeProps = {
 
 export function MapBadge({ label, value }: MapBadgeProps) {
   return (
-    <div className="overlay-card min-w-[120px]">
+    <div className="overlay-card min-w-0">
       <p className="stat-label">{label}</p>
-      <p className="m-0 mt-1 font-mono text-sm text-slate-50">{value}</p>
+      <p className="m-0 mt-1 break-words font-mono text-sm text-slate-50">{value}</p>
     </div>
   );
 }

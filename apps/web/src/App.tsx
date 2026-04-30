@@ -116,6 +116,14 @@ export default function App() {
   const deferredAirportFilter = useDeferredValue(airportFilter);
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const focusRequestIdRef = useRef(0);
+  const shellGridClass =
+    activePage === "route"
+      ? "grid gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-[110px_minmax(560px,0.95fr)_minmax(0,1.45fr)]"
+      : "grid gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-[110px_400px_minmax(0,1fr)]";
+  const detailPanelClass =
+    activePage === "route"
+      ? "layout-panel flex min-h-[620px] flex-col overflow-hidden xl:min-h-0"
+      : "layout-panel flex min-h-[620px] flex-col overflow-hidden xl:min-h-0";
 
   useEffect(() => {
     let active = true;
@@ -309,10 +317,6 @@ export default function App() {
           return null;
         }
 
-        if (selectedProcedureGeometry?.summary.id === procedureId) {
-          return selectedProcedureGeometry;
-        }
-
         return getProcedureGeometry(procedureId, { signal: controller.signal });
       };
 
@@ -349,7 +353,7 @@ export default function App() {
     return () => {
       controller.abort();
     };
-  }, [selectedProcedureGeometry, selectedRoutePreview]);
+  }, [selectedRoutePreview]);
 
   useEffect(() => {
     if (!routeMapOverlay) {
@@ -578,10 +582,10 @@ export default function App() {
   return (
     <div className="app-shell">
       <div className="page-frame">
-        <div className="grid gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-[110px_400px_minmax(0,1fr)]">
+        <div className={shellGridClass}>
           <SideRail activePage={activePage} onPageChange={setActivePage} />
 
-          <section className="layout-panel flex min-h-[620px] flex-col overflow-hidden xl:min-h-0">
+          <section className={detailPanelClass}>
             <DetailHeader
               activePage={activePage}
               searchQuery={searchQuery}
@@ -650,9 +654,9 @@ export default function App() {
                 />
               ) : null}
 
-              {activePage === "route" ? (
+              <div className={activePage === "route" ? "block" : "hidden"} aria-hidden={activePage !== "route"}>
                 <RoutePage onRoutePreviewChange={setSelectedRoutePreview} />
-              ) : null}
+              </div>
               {activePage === "fuel" ? (
                 <FuelPage
                   selectedAirport={selectedAirport}
