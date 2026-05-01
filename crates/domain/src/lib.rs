@@ -429,6 +429,7 @@ pub struct EaipStatusResponse {
     pub airport_count: usize,
     pub general_document_count: usize,
     pub enroute_document_count: usize,
+    pub max_upload_bytes: usize,
     pub memory_only: bool,
     pub source: String,
     pub message: Option<String>,

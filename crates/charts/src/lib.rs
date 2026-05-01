@@ -96,6 +96,7 @@ impl EaipChartService {
                     airport_count: 0,
                     general_document_count: 0,
                     enroute_document_count: 0,
+                    max_upload_bytes: 0,
                     memory_only: true,
                     source: DEFAULT_SOURCE.to_string(),
                     message: Some(message.into()),
@@ -148,6 +149,7 @@ impl EaipChartService {
                         airport_count: 0,
                         general_document_count: 0,
                         enroute_document_count: 0,
+                        max_upload_bytes: 0,
                         memory_only: true,
                         source: DEFAULT_SOURCE.to_string(),
                         message: Some(message),
@@ -181,6 +183,7 @@ impl EaipChartService {
                             airport_count: 0,
                             general_document_count: 0,
                             enroute_document_count: 0,
+                            max_upload_bytes: 0,
                             memory_only: true,
                             source: DEFAULT_SOURCE.to_string(),
                             message: Some(message),
@@ -422,6 +425,7 @@ fn build_ready_store(
             airport_count,
             general_document_count,
             enroute_document_count,
+            max_upload_bytes: 0,
             memory_only,
             source,
             message: None,
@@ -460,15 +464,15 @@ fn build_chart_record(path: &str) -> Option<ChartRecord> {
         return None;
     }
 
-    let scope = chart_scope(&segments);
-    let airport_icao = airport_icao_for_segments(scope, &segments);
+    let (scope_anchor, scope) = resolve_chart_scope(&segments);
+    let airport_icao = airport_icao_for_segments(scope, &segments, scope_anchor);
     let file_name = segments.last()?.to_string();
     let title = file_name
         .strip_suffix(".pdf")
         .or_else(|| file_name.strip_suffix(".PDF"))
         .unwrap_or(&file_name)
         .to_string();
-    let category = chart_category(scope, &segments);
+    let category = chart_category(scope, &segments, scope_anchor);
 
     Some(ChartRecord {
         internal_path: normalized_path.clone(),
@@ -484,49 +488,69 @@ fn build_chart_record(path: &str) -> Option<ChartRecord> {
     })
 }
 
-fn chart_scope(segments: &[&str]) -> EaipChartScope {
-    match segments.first().map(|segment| segment.to_ascii_uppercase()) {
-        Some(value) if value == "TERMINAL" => EaipChartScope::Airport,
-        Some(value) if value == "ENR" => EaipChartScope::Enroute,
-        Some(value) if value == "GENERALDOC" => EaipChartScope::General,
-        _ => EaipChartScope::Other,
+fn resolve_chart_scope(segments: &[&str]) -> (Option<usize>, EaipChartScope) {
+    for (index, segment) in segments.iter().enumerate() {
+        match segment.trim().to_ascii_uppercase().as_str() {
+            "TERMINAL" => return (Some(index), EaipChartScope::Airport),
+            "ENR" => return (Some(index), EaipChartScope::Enroute),
+            "GENERALDOC" => return (Some(index), EaipChartScope::General),
+            _ => {}
+        }
     }
+
+    (None, EaipChartScope::Other)
 }
 
-fn airport_icao_for_segments(scope: EaipChartScope, segments: &[&str]) -> Option<String> {
-    if scope != EaipChartScope::Airport || segments.len() < 2 {
+fn non_file_segment(segments: &[&str], index: usize) -> Option<String> {
+    if index >= segments.len().saturating_sub(1) {
         return None;
     }
 
-    Some(segments[1].trim().to_ascii_uppercase())
+    let normalized = segments[index].trim().to_ascii_uppercase();
+    if normalized.is_empty() {
+        return None;
+    }
+
+    Some(normalized)
 }
 
-fn chart_category(scope: EaipChartScope, segments: &[&str]) -> String {
+fn airport_icao_for_segments(
+    scope: EaipChartScope,
+    segments: &[&str],
+    anchor: Option<usize>,
+) -> Option<String> {
+    let Some(anchor) = anchor else {
+        return None;
+    };
+    if scope != EaipChartScope::Airport {
+        return None;
+    }
+
+    non_file_segment(segments, anchor + 1)
+}
+
+fn chart_category(scope: EaipChartScope, segments: &[&str], anchor: Option<usize>) -> String {
     match scope {
-        EaipChartScope::Airport => {
-            if segments.len() >= 4 {
-                segments[2].trim().to_ascii_uppercase()
-            } else {
-                "TERMINAL".to_string()
-            }
-        }
-        EaipChartScope::Enroute => segments
-            .get(1)
-            .filter(|_| segments.len() > 2)
-            .map(|segment| segment.trim().to_ascii_uppercase())
-            .filter(|segment| !segment.is_empty())
+        EaipChartScope::Airport => anchor
+            .and_then(|index| non_file_segment(segments, index + 2))
+            .unwrap_or_else(|| "TERMINAL".to_string()),
+        EaipChartScope::Enroute => anchor
+            .and_then(|index| non_file_segment(segments, index + 1))
             .unwrap_or_else(|| "ENR".to_string()),
-        EaipChartScope::General => segments
-            .get(1)
-            .filter(|_| segments.len() > 2)
-            .map(|segment| segment.trim().to_ascii_uppercase())
-            .filter(|segment| !segment.is_empty())
+        EaipChartScope::General => anchor
+            .and_then(|index| non_file_segment(segments, index + 1))
             .unwrap_or_else(|| "GENERALDOC".to_string()),
-        EaipChartScope::Other => segments
-            .first()
-            .map(|segment| segment.trim().to_ascii_uppercase())
-            .filter(|segment| !segment.is_empty())
-            .unwrap_or_else(|| "OTHER".to_string()),
+        EaipChartScope::Other => {
+            if let Some(anchor) = anchor {
+                return segments[anchor].trim().to_ascii_uppercase();
+            }
+
+            segments
+                .first()
+                .map(|segment| segment.trim().to_ascii_uppercase())
+                .filter(|segment| !segment.is_empty())
+                .unwrap_or_else(|| "OTHER".to_string())
+        }
     }
 }
 
@@ -615,6 +639,28 @@ mod tests {
     #[test]
     fn ignores_non_pdf_entries() {
         assert!(build_chart_record("Terminal/ZBAA/notes.txt").is_none());
+    }
+
+    #[test]
+    fn builds_chart_metadata_from_prefixed_terminal_path() {
+        let record = build_chart_record(
+            "EAIP2026-04.V1.4/Terminal/ZSSS/SID/ZSSS-7F-SID RNAV RWY36L-36R(ADBAS).pdf",
+        )
+        .expect("prefixed airport chart should parse");
+
+        assert_eq!(record.summary.scope, EaipChartScope::Airport);
+        assert_eq!(record.summary.airport_icao.as_deref(), Some("ZSSS"));
+        assert_eq!(record.summary.category, "SID");
+    }
+
+    #[test]
+    fn builds_enroute_chart_metadata_from_prefixed_path() {
+        let record = build_chart_record("EAIP2026-04.V1.4/ENR/AREA/route.pdf")
+            .expect("prefixed enroute chart should parse");
+
+        assert_eq!(record.summary.scope, EaipChartScope::Enroute);
+        assert_eq!(record.summary.airport_icao, None);
+        assert_eq!(record.summary.category, "AREA");
     }
 
     #[test]

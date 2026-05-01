@@ -154,7 +154,9 @@ async fn eaip_status(state: Data<AppState>) -> impl Responder {
         .chart_service
         .read()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    HttpResponse::Ok().json(service.status())
+    let mut status = service.status();
+    status.max_upload_bytes = eaip_upload_limit_bytes();
+    HttpResponse::Ok().json(status)
 }
 
 #[get("/api/v1/eaip/airports/{airport_ident}/charts")]
@@ -286,6 +288,8 @@ async fn configure_eaip(
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     *chart_service = service;
 
+    let mut status = status;
+    status.max_upload_bytes = eaip_upload_limit_bytes();
     Ok(Json(status))
 }
 
@@ -379,6 +383,8 @@ async fn upload_eaip(
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     *chart_service = service;
 
+    let mut status = status;
+    status.max_upload_bytes = upload_limit_bytes;
     Ok(Json(status))
 }
 
@@ -397,6 +403,8 @@ async fn unload_eaip(
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     *chart_service = service;
 
+    let mut status = status;
+    status.max_upload_bytes = eaip_upload_limit_bytes();
     Ok(Json(status))
 }
 

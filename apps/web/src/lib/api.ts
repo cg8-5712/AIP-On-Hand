@@ -13,7 +13,20 @@ import type {
   VersionResponse,
 } from "../types/api";
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
+function resolveApiBaseUrl() {
+  const explicitBaseUrl = import.meta.env.VITE_API_BASE_URL;
+  if (typeof explicitBaseUrl === "string" && explicitBaseUrl.trim().length > 0) {
+    return explicitBaseUrl.trim().replace(/\/$/, "");
+  }
+
+  if (typeof window !== "undefined" && window.location.port === "5173") {
+    return "http://127.0.0.1:8080";
+  }
+
+  return "";
+}
+
+const apiBaseUrl = resolveApiBaseUrl();
 
 type RequestOptions = {
   signal?: AbortSignal;

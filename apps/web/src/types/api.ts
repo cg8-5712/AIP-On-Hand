@@ -359,6 +359,7 @@ export type EaipStatusResponse = {
   airportCount: number;
   generalDocumentCount: number;
   enrouteDocumentCount: number;
+  maxUploadBytes: number;
   memoryOnly: boolean;
   source: string;
   message?: string | null;

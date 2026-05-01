@@ -14,6 +14,19 @@ type SettingsPageProps = {
 
 type ImportMode = "upload" | "path";
 
+function formatBytes(bytes: number | null | undefined) {
+  if (!bytes || bytes <= 0) {
+    return "n/a";
+  }
+
+  const megabytes = bytes / 1024 / 1024;
+  if (megabytes >= 1024) {
+    return `${(megabytes / 1024).toFixed(2)} GB`;
+  }
+
+  return `${megabytes.toFixed(0)} MB`;
+}
+
 export function SettingsPage({
   eaipStatus,
   eaipStatusError,
@@ -30,6 +43,7 @@ export function SettingsPage({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const maxUploadBytes = eaipStatus?.maxUploadBytes ?? 0;
 
   async function handlePathSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -68,6 +82,13 @@ export function SettingsPage({
 
     if (!uploadPassword.trim()) {
       setSubmitError("Package password is required.");
+      return;
+    }
+
+    if (maxUploadBytes > 0 && selectedUploadFile.size > maxUploadBytes) {
+      setSubmitError(
+        `Selected package is ${formatBytes(selectedUploadFile.size)}, exceeding the current in-memory upload limit of ${formatBytes(maxUploadBytes)}.`,
+      );
       return;
     }
 
@@ -185,9 +206,25 @@ export function SettingsPage({
                     type="file"
                     accept=".aipkg,.aip,application/octet-stream"
                     className="mt-4 block w-full text-sm text-slate-300 file:mr-4 file:cursor-pointer file:rounded-full file:border-0 file:bg-cyan-950/42 file:px-4 file:py-2 file:text-cyan-100 hover:file:bg-cyan-900/40"
-                    onChange={(event) => setSelectedUploadFile(event.target.files?.[0] ?? null)}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0] ?? null;
+                      if (file && maxUploadBytes > 0 && file.size > maxUploadBytes) {
+                        setSelectedUploadFile(null);
+                        setSubmitError(
+                          `Selected package is ${formatBytes(file.size)}, exceeding the current in-memory upload limit of ${formatBytes(maxUploadBytes)}. Use Backend Path for larger packages, or raise AIP_EAIP_MAX_UPLOAD_BYTES on the API process.`,
+                        );
+                        event.target.value = "";
+                        return;
+                      }
+
+                      setSubmitError(null);
+                      setSelectedUploadFile(file);
+                    }}
                   />
                 </label>
+                <p className="m-0 mt-3 text-[0.78rem] text-slate-500">
+                  Current browser upload limit: {formatBytes(maxUploadBytes)}.
+                </p>
               </div>
 
               <label className="block text-[0.8rem] text-slate-400" htmlFor="eaip-upload-password">
@@ -309,6 +346,7 @@ export function SettingsPage({
                 label="ENR Docs"
                 value={typeof eaipStatus?.enrouteDocumentCount === "number" ? String(eaipStatus.enrouteDocumentCount) : "0"}
               />
+              <WeatherDetailRow label="Upload Limit" value={formatBytes(maxUploadBytes)} />
             </div>
           </div>
 
