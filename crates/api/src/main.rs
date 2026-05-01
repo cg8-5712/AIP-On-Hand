@@ -1,23 +1,30 @@
 use actix_cors::Cors;
+use actix_multipart::Multipart;
 use actix_web::{
     get,
     http::{header, StatusCode},
     middleware::Logger,
+    post,
     web::{self, Data, Json, Path, Query},
     App, HttpResponse, HttpServer, Responder, ResponseError,
 };
 use aip_charts::{ChartError, EaipChartService};
 use aip_navigation::{LayerQuery, NavDb};
 use aip_weather::{WeatherError, WeatherService};
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use std::{env, fmt, io, path::PathBuf};
+use std::{
+    env, fmt, io,
+    path::{Path as FsPath, PathBuf},
+    sync::{Arc, RwLock},
+};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Clone)]
 struct AppState {
     nav_db: NavDb,
-    chart_service: EaipChartService,
+    chart_service: Arc<RwLock<EaipChartService>>,
     weather_service: WeatherService,
 }
 
@@ -116,6 +123,15 @@ struct RoutePlanQuery {
     limit: Option<usize>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConfigureEaipRequest {
+    package_path: String,
+    password: String,
+}
+
+const DEFAULT_EAIP_UPLOAD_LIMIT_BYTES: usize = 512 * 1024 * 1024;
+
 #[get("/api/v1/health")]
 async fn health() -> impl Responder {
     HttpResponse::Ok().json(HealthResponse {
@@ -134,7 +150,11 @@ async fn version() -> impl Responder {
 
 #[get("/api/v1/eaip/status")]
 async fn eaip_status(state: Data<AppState>) -> impl Responder {
-    HttpResponse::Ok().json(state.chart_service.status())
+    let service = state
+        .chart_service
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    HttpResponse::Ok().json(service.status())
 }
 
 #[get("/api/v1/eaip/airports/{airport_ident}/charts")]
@@ -142,10 +162,26 @@ async fn eaip_airport_charts(
     state: Data<AppState>,
     airport_ident: Path<String>,
 ) -> Result<Json<aip_domain::EaipAirportChartsResponse>, ApiError> {
-    let payload = state
+    let service = state
         .chart_service
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let payload = service
         .list_airport_charts(&airport_ident.into_inner())
         .map_err(map_chart_error)?;
+
+    Ok(Json(payload))
+}
+
+#[get("/api/v1/eaip/catalog")]
+async fn eaip_catalog(
+    state: Data<AppState>,
+) -> Result<Json<aip_domain::EaipCatalogResponse>, ApiError> {
+    let service = state
+        .chart_service
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let payload = service.catalog().map_err(map_chart_error)?;
 
     Ok(Json(payload))
 }
@@ -156,12 +192,21 @@ async fn eaip_chart_content(
     chart_id: Path<String>,
 ) -> Result<HttpResponse, ApiError> {
     let chart_id = chart_id.into_inner();
-    let summary = state
-        .chart_service
-        .chart_summary(&chart_id)
-        .map_err(map_chart_error)?;
+    let summary = {
+        let service = state
+            .chart_service
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        service.chart_summary(&chart_id).map_err(map_chart_error)?
+    };
 
-    let chart_service = state.chart_service.clone();
+    let chart_service = {
+        let service = state
+            .chart_service
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        service.clone()
+    };
     let chart_id_for_read = chart_id.clone();
     let bytes = web::block(move || chart_service.read_chart_bytes(&chart_id_for_read))
         .await
@@ -189,6 +234,170 @@ async fn eaip_chart_content(
             ),
         ))
         .body(bytes))
+}
+
+#[post("/api/v1/eaip/configure")]
+async fn configure_eaip(
+    state: Data<AppState>,
+    payload: Json<ConfigureEaipRequest>,
+) -> Result<Json<aip_domain::EaipStatusResponse>, ApiError> {
+    let package_path = payload.package_path.trim();
+    let password = payload.password.trim();
+
+    if package_path.is_empty() {
+        return Err(ApiError::BadRequest(
+            "package path must not be blank".to_string(),
+        ));
+    }
+
+    if password.is_empty() {
+        return Err(ApiError::BadRequest(
+            "package password must not be blank".to_string(),
+        ));
+    }
+
+    if !FsPath::new(package_path).exists() {
+        return Err(ApiError::BadRequest(format!(
+            "package path does not exist: {package_path}"
+        )));
+    }
+
+    let package_path = package_path.to_string();
+    let password = password.to_string();
+    let service = web::block(move || {
+        EaipChartService::from_package_path(
+            PathBuf::from(package_path),
+            &password,
+            EaipChartService::default_cache_capacity(),
+        )
+    })
+    .await
+    .map_err(|error| {
+        ApiError::Internal(format!(
+            "failed to configure eAIP package in background task: {error}"
+        ))
+    })?
+    .map_err(map_chart_error)?;
+    let status = service.status();
+
+    let mut chart_service = state
+        .chart_service
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *chart_service = service;
+
+    Ok(Json(status))
+}
+
+#[post("/api/v1/eaip/upload")]
+async fn upload_eaip(
+    state: Data<AppState>,
+    mut multipart: Multipart,
+) -> Result<Json<aip_domain::EaipStatusResponse>, ApiError> {
+    let mut password: Option<String> = None;
+    let mut package_bytes: Option<Vec<u8>> = None;
+    let mut package_file_name: Option<String> = None;
+
+    let upload_limit_bytes = eaip_upload_limit_bytes();
+
+    while let Some(field_result) = multipart.next().await {
+        let mut field = field_result.map_err(|error| {
+            ApiError::BadRequest(format!("failed to read multipart upload field: {error}"))
+        })?;
+        let field_name = field
+            .content_disposition()
+            .and_then(|content| content.get_name())
+            .map(str::to_string)
+            .unwrap_or_default();
+
+        let mut bytes = Vec::new();
+        while let Some(chunk_result) = field.next().await {
+            let chunk = chunk_result.map_err(|error| {
+                ApiError::BadRequest(format!("failed to read multipart chunk: {error}"))
+            })?;
+            if field_name == "package"
+                && bytes.len().checked_add(chunk.len()).unwrap_or(usize::MAX) > upload_limit_bytes
+            {
+                return Err(ApiError::BadRequest(format!(
+                    "uploaded package exceeds the {} MB in-memory limit",
+                    upload_limit_bytes / 1024 / 1024
+                )));
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+
+        match field_name.as_str() {
+            "password" => {
+                let value = String::from_utf8(bytes).map_err(|_| {
+                    ApiError::BadRequest("password field must be valid UTF-8".to_string())
+                })?;
+                password = Some(value);
+            }
+            "package" => {
+                package_file_name = field
+                    .content_disposition()
+                    .and_then(|content| content.get_filename())
+                    .map(sanitize_upload_file_name);
+                package_bytes = Some(bytes);
+            }
+            _ => {}
+        }
+    }
+
+    let password = password
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::BadRequest("upload password is required".to_string()))?;
+    let package_bytes = package_bytes
+        .filter(|bytes| !bytes.is_empty())
+        .ok_or_else(|| ApiError::BadRequest("uploaded package file is required".to_string()))?;
+    let package_file_name = package_file_name
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| ApiError::BadRequest("uploaded package file name is missing".to_string()))?;
+
+    let file_name_for_service = package_file_name.clone();
+    let service = web::block(move || {
+        EaipChartService::from_package_bytes(
+            file_name_for_service,
+            package_bytes,
+            &password,
+            EaipChartService::default_cache_capacity(),
+        )
+    })
+    .await
+    .map_err(|error| {
+        ApiError::Internal(format!(
+            "failed to configure uploaded eAIP package in background task: {error}"
+        ))
+    })?
+    .map_err(map_chart_error)?;
+
+    let status = service.status();
+    let mut chart_service = state
+        .chart_service
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *chart_service = service;
+
+    Ok(Json(status))
+}
+
+#[post("/api/v1/eaip/unload")]
+async fn unload_eaip(
+    state: Data<AppState>,
+) -> Result<Json<aip_domain::EaipStatusResponse>, ApiError> {
+    let service = EaipChartService::unloaded(
+        "eAIP package was unloaded from memory. No chart package is currently active.",
+    );
+    let status = service.status();
+
+    let mut chart_service = state
+        .chart_service
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *chart_service = service;
+
+    Ok(Json(status))
 }
 
 #[get("/api/v1/map/layers")]
@@ -332,6 +541,27 @@ fn sanitize_content_disposition_filename(value: &str) -> String {
         .collect()
 }
 
+fn sanitize_upload_file_name(value: &str) -> String {
+    value
+        .chars()
+        .filter(|character| {
+            *character != '\0'
+                && *character != '\r'
+                && *character != '\n'
+                && *character != '/'
+                && *character != '\\'
+        })
+        .collect()
+}
+
+fn eaip_upload_limit_bytes() -> usize {
+    env::var("AIP_EAIP_MAX_UPLOAD_BYTES")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_EAIP_UPLOAD_LIMIT_BYTES)
+}
+
 fn configure_logging() {
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,actix_web=info"));
@@ -371,7 +601,7 @@ async fn main() -> io::Result<()> {
             format!("failed to open nav database: {error}"),
         )
     })?;
-    let chart_service = EaipChartService::from_env();
+    let chart_service = Arc::new(RwLock::new(EaipChartService::from_env()));
     let weather_service = WeatherService::from_env().map_err(|error| {
         io::Error::new(
             io::ErrorKind::Other,
@@ -400,6 +630,10 @@ async fn main() -> io::Result<()> {
             .service(health)
             .service(version)
             .service(eaip_status)
+            .service(eaip_catalog)
+            .service(configure_eaip)
+            .service(upload_eaip)
+            .service(unload_eaip)
             .service(eaip_airport_charts)
             .service(eaip_chart_content)
             .service(map_layers)

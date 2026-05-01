@@ -7,4 +7,6 @@ edition.workspace = true
 aip-domain = { path = "../domain" }
 base64.workspace = true
 eaip_manager = { package = "eaip-manager", path = "path to eaip-manager" }
+lru = "0.12.5"
+serde_json.workspace = true
 tracing.workspace = true

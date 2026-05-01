@@ -344,6 +344,12 @@ export type EaipAirportChartsResponse = {
   charts: EaipChartSummary[];
 };
 
+export type EaipCatalogResponse = {
+  airportCharts: EaipChartSummary[];
+  generalDocuments: EaipChartSummary[];
+  enrouteDocuments: EaipChartSummary[];
+};
+
 export type EaipStatusResponse = {
   configured: boolean;
   ready: boolean;

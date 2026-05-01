@@ -1,28 +1,85 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AirportFeature, EaipAirportChartsResponse, EaipChartSummary, EaipStatusResponse } from "../../types/api";
-import { getEaipAirportCharts, getEaipChartContent, getEaipStatus } from "../../lib/api";
-import { InlineError, MiniDataTile } from "../shared/PanelPrimitives";
+import { getEaipChartContent, getEaipChartContentUrl } from "../../lib/api";
+import type {
+  AirportFeature,
+  EaipCatalogResponse,
+  EaipChartScope,
+  EaipChartSummary,
+  EaipStatusResponse,
+} from "../../types/api";
+import { FilterChip, InlineError, MiniDataTile } from "../shared/PanelPrimitives";
 import { EaipChartList, type EaipChartGroup } from "./EaipChartList";
 import { EaipPreviewPanel } from "./EaipPreviewPanel";
 
+type ViewerScope = "airport" | "general" | "enroute";
+
 type EaipPageProps = {
+  catalog: EaipCatalogResponse | null;
+  catalogError: string | null;
+  isCatalogLoading: boolean;
   selectedAirport: AirportFeature | null;
+  status: EaipStatusResponse | null;
+  statusError: string | null;
+  isStatusLoading: boolean;
 };
 
 const categoryOrder = ["ADC", "APDC", "GMC", "PARKING", "SID", "STAR", "IAC", "VAC", "AOC"];
+const scopeMeta: Record<ViewerScope, { label: string; description: string }> = {
+  airport: {
+    label: "Airport",
+    description: "Airport-specific ADC, APDC, SID, STAR, and approach charts for the current map selection.",
+  },
+  general: {
+    label: "General",
+    description: "General documentation sheets that are not tied to a single airport.",
+  },
+  enroute: {
+    label: "ENR",
+    description: "Enroute documents and area chart material from the encrypted package.",
+  },
+};
 
 function categoryRank(category: string) {
   const index = categoryOrder.indexOf(category);
   return index === -1 ? Number.MAX_SAFE_INTEGER : index;
 }
 
-export function EaipPage({ selectedAirport }: EaipPageProps) {
-  const [status, setStatus] = useState<EaipStatusResponse | null>(null);
-  const [statusError, setStatusError] = useState<string | null>(null);
-  const [isStatusLoading, setIsStatusLoading] = useState(true);
-  const [airportCharts, setAirportCharts] = useState<EaipAirportChartsResponse | null>(null);
-  const [chartsError, setChartsError] = useState<string | null>(null);
-  const [isChartsLoading, setIsChartsLoading] = useState(false);
+function groupedCharts(charts: EaipChartSummary[]) {
+  const groups = new Map<string, EaipChartSummary[]>();
+
+  for (const chart of charts) {
+    const group = groups.get(chart.category) ?? [];
+    group.push(chart);
+    groups.set(chart.category, group);
+  }
+
+  return [...groups.entries()]
+    .sort((left, right) => {
+      const byRank = categoryRank(left[0]) - categoryRank(right[0]);
+      if (byRank !== 0) {
+        return byRank;
+      }
+
+      return left[0].localeCompare(right[0]);
+    })
+    .map(([category, grouped]) => ({
+      category,
+      charts: grouped,
+    })) satisfies EaipChartGroup[];
+}
+
+export function EaipPage({
+  catalog,
+  catalogError,
+  isCatalogLoading,
+  selectedAirport,
+  status,
+  statusError,
+  isStatusLoading,
+}: EaipPageProps) {
+  const [activeScope, setActiveScope] = useState<ViewerScope>("airport");
+  const [selectedCategory, setSelectedCategory] = useState<string>("all");
+  const [chartSearch, setChartSearch] = useState("");
   const [selectedChartId, setSelectedChartId] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -45,91 +102,87 @@ export function EaipPage({ selectedAirport }: EaipPageProps) {
     ? `${selectedAirport.ident}${selectedAirport.icao ? ` / ${selectedAirport.icao}` : ""}`
     : "n/a";
 
-  useEffect(() => {
-    const controller = new AbortController();
-    setStatusError(null);
-    setIsStatusLoading(true);
+  const scopeCharts = useMemo(() => {
+    if (!catalog) {
+      return [] as EaipChartSummary[];
+    }
 
-    getEaipStatus({ signal: controller.signal })
-      .then((response) => {
-        setStatus(response);
-      })
-      .catch((error) => {
-        if (controller.signal.aborted) {
-          return;
+    switch (activeScope) {
+      case "general":
+        return catalog.generalDocuments;
+      case "enroute":
+        return catalog.enrouteDocuments;
+      case "airport":
+      default:
+        if (!selectedAirportCode) {
+          return [];
+        }
+        return catalog.airportCharts.filter((chart) => chart.airportIcao === selectedAirportCode);
+    }
+  }, [activeScope, catalog, selectedAirportCode]);
+
+  const availableCategories = useMemo(() => {
+    return [...new Set(scopeCharts.map((chart) => chart.category))]
+      .sort((left, right) => {
+        const byRank = categoryRank(left) - categoryRank(right);
+        if (byRank !== 0) {
+          return byRank;
         }
 
-        setStatus(null);
-        setStatusError(error instanceof Error ? error.message : "Failed to load eAIP status");
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setIsStatusLoading(false);
-        }
+        return left.localeCompare(right);
       });
+  }, [scopeCharts]);
 
-    return () => {
-      controller.abort();
-    };
-  }, []);
+  const visibleCharts = useMemo(() => {
+    const normalizedSearch = chartSearch.trim().toLowerCase();
+
+    return scopeCharts.filter((chart) => {
+      const categoryMatches = selectedCategory === "all" || chart.category === selectedCategory;
+      const searchMatches =
+        !normalizedSearch ||
+        chart.title.toLowerCase().includes(normalizedSearch) ||
+        chart.fileName.toLowerCase().includes(normalizedSearch) ||
+        chart.category.toLowerCase().includes(normalizedSearch) ||
+        chart.airportIcao?.toLowerCase().includes(normalizedSearch);
+
+      return categoryMatches && searchMatches;
+    });
+  }, [chartSearch, scopeCharts, selectedCategory]);
+
+  const chartGroups = useMemo(() => groupedCharts(visibleCharts), [visibleCharts]);
 
   useEffect(() => {
-    if (!selectedAirportCode) {
-      setAirportCharts(null);
-      setChartsError(null);
-      setIsChartsLoading(false);
-      setSelectedChartId(null);
+    setSelectedCategory("all");
+    setChartSearch("");
+  }, [activeScope, selectedAirportCode]);
+
+  useEffect(() => {
+    if (selectedCategory === "all") {
       return;
     }
 
-    if (isStatusLoading) {
-      return;
+    if (!availableCategories.includes(selectedCategory)) {
+      setSelectedCategory("all");
     }
+  }, [availableCategories, selectedCategory]);
 
-    if (status && !status.ready) {
-      setAirportCharts(null);
-      setChartsError(status.message ?? "The encrypted eAIP package is not ready.");
-      setIsChartsLoading(false);
-      setSelectedChartId(null);
-      return;
-    }
-
-    const controller = new AbortController();
-    setChartsError(null);
-    setIsChartsLoading(true);
-
-    getEaipAirportCharts(selectedAirportCode, { signal: controller.signal })
-      .then((response) => {
-        setAirportCharts(response);
-        setSelectedChartId((current) =>
-          current && response.charts.some((chart) => chart.chartId === current)
-            ? current
-            : response.charts[0]?.chartId ?? null,
-        );
-      })
-      .catch((error) => {
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        setAirportCharts(null);
-        setSelectedChartId(null);
-        setChartsError(error instanceof Error ? error.message : "Failed to load airport charts");
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setIsChartsLoading(false);
-        }
-      });
-
-    return () => {
-      controller.abort();
-    };
-  }, [isStatusLoading, selectedAirportCode, status]);
+  useEffect(() => {
+    setSelectedChartId((current) =>
+      current && visibleCharts.some((chart) => chart.chartId === current)
+        ? current
+        : visibleCharts[0]?.chartId ?? null,
+    );
+  }, [visibleCharts]);
 
   const selectedChart = useMemo(() => {
-    return airportCharts?.charts.find((chart) => chart.chartId === selectedChartId) ?? null;
-  }, [airportCharts, selectedChartId]);
+    return visibleCharts.find((chart) => chart.chartId === selectedChartId) ?? null;
+  }, [selectedChartId, visibleCharts]);
+
+  const selectedChartIndex = useMemo(() => {
+    return visibleCharts.findIndex((chart) => chart.chartId === selectedChartId);
+  }, [selectedChartId, visibleCharts]);
+
+  const contentUrl = selectedChart ? getEaipChartContentUrl(selectedChart.chartId) : null;
 
   useEffect(() => {
     if (previewUrlRef.current) {
@@ -181,29 +234,13 @@ export function EaipPage({ selectedAirport }: EaipPageProps) {
     };
   }, []);
 
-  const groupedCharts = useMemo<EaipChartGroup[]>(() => {
-    const groups = new Map<string, EaipChartSummary[]>();
-
-    for (const chart of airportCharts?.charts ?? []) {
-      const group = groups.get(chart.category) ?? [];
-      group.push(chart);
-      groups.set(chart.category, group);
-    }
-
-    return [...groups.entries()]
-      .sort((left, right) => {
-        const byRank = categoryRank(left[0]) - categoryRank(right[0]);
-        if (byRank !== 0) {
-          return byRank;
-        }
-
-        return left[0].localeCompare(right[0]);
-      })
-      .map(([category, charts]) => ({
-        category,
-        charts,
-      }));
-  }, [airportCharts]);
+  const selectedScopeMeta = scopeMeta[activeScope];
+  const scopeDescription =
+    activeScope === "airport" && !selectedAirportCode
+      ? "Choose an airport on the map to unlock airport chart browsing in this scope."
+      : selectedScopeMeta.description;
+  const currentPositionLabel =
+    selectedChartIndex >= 0 ? `${selectedChartIndex + 1} / ${visibleCharts.length}` : `0 / ${visibleCharts.length}`;
 
   return (
     <section className="grid gap-4">
@@ -212,8 +249,8 @@ export function EaipPage({ selectedAirport }: EaipPageProps) {
           <p className="section-kicker">eAIP Desk</p>
           <h2 className="section-title mt-2">Encrypted Chart Viewer</h2>
           <p className="support-copy mt-2 max-w-[52rem] text-sm">
-            Airport chart access is now wired to the encrypted package backend. The browser only
-            receives metadata and on-demand PDF bytes for the selected sheet.
+            Scope-aware chart browsing is now available for airport, general, and enroute documents.
+            Search, category filtering, and sequential sheet navigation all stay inside the same secure viewer.
           </p>
         </div>
         <div
@@ -229,54 +266,109 @@ export function EaipPage({ selectedAirport }: EaipPageProps) {
       </div>
 
       {statusError ? <InlineError message={statusError} /> : null}
+      {catalogError ? <InlineError message={catalogError} /> : null}
       {status?.message && !status.ready ? <InlineError message={status.message} /> : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <MiniDataTile label="Package" value={status?.packageFile ?? "not configured"} />
         <MiniDataTile label="AIRAC" value={typeof status?.cycle === "number" ? String(status.cycle) : "n/a"} />
-        <MiniDataTile label="Indexed PDFs" value={typeof status?.chartCount === "number" ? String(status.chartCount) : "0"} />
-        <MiniDataTile label="Delivery" value={status?.memoryOnly ? "memory-only" : "n/a"} />
+        <MiniDataTile label="Source" value={status?.source ?? "n/a"} />
+        <MiniDataTile label="Selected Airport" value={airportLabel} />
+        <MiniDataTile label="Visible Sheets" value={String(visibleCharts.length)} />
       </div>
 
-      {!selectedAirportCode ? (
-        <div className="overlay-card mt-2">
-          <p className="muted-copy text-sm">
-            Select an airport from the map page to load its airport chart collection into the eAIP desk.
-          </p>
+      <div className="rounded-[22px] border border-slate-700/60 bg-slate-950/55 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="section-kicker">Scope Browser</p>
+            <p className="m-0 mt-2 text-sm text-slate-300">{scopeDescription}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <FilterChip
+              label="Airport"
+              isActive={activeScope === "airport"}
+              onClick={() => setActiveScope("airport")}
+            />
+            <FilterChip
+              label="General"
+              isActive={activeScope === "general"}
+              onClick={() => setActiveScope("general")}
+            />
+            <FilterChip
+              label="ENR"
+              isActive={activeScope === "enroute"}
+              onClick={() => setActiveScope("enroute")}
+            />
+          </div>
         </div>
-      ) : (
-        <>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <MiniDataTile label="Selected Airport" value={airportLabel} />
-            <MiniDataTile label="Resolved ICAO" value={airportCharts?.resolvedAirportIcao ?? selectedAirportCode} />
-            <MiniDataTile
-              label="Airport Sheets"
-              value={typeof airportCharts?.charts.length === "number" ? String(airportCharts.charts.length) : "0"}
-            />
-            <MiniDataTile label="Viewer State" value={selectedChart ? selectedChart.category : "idle"} />
-          </div>
 
-          <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
-            <EaipChartList
-              groups={groupedCharts}
-              selectedChartId={selectedChartId}
-              isLoading={isChartsLoading}
-              error={chartsError}
-              airportCode={airportCharts?.resolvedAirportIcao ?? selectedAirportCode}
-              onChartSelect={setSelectedChartId}
+        <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
+          <label className="block text-[0.8rem] text-slate-400" htmlFor="eaip-chart-search">
+            Search within current scope
+            <input
+              id="eaip-chart-search"
+              type="search"
+              value={chartSearch}
+              onChange={(event) => setChartSearch(event.target.value)}
+              placeholder="Chart title, file name, category"
+              className="input-shell"
             />
+          </label>
 
-            <EaipPreviewPanel
-              selectedChart={selectedChart}
-              previewUrl={previewUrl}
-              isPreviewLoading={isPreviewLoading}
-              previewError={previewError}
-              airportLabel={airportLabel}
-              packageFile={status?.packageFile ?? null}
+          <div className="flex flex-wrap gap-2">
+            <FilterChip
+              label="All"
+              isActive={selectedCategory === "all"}
+              onClick={() => setSelectedCategory("all")}
             />
+            {availableCategories.map((category) => (
+              <FilterChip
+                key={category}
+                label={category}
+                isActive={selectedCategory === category}
+                onClick={() => setSelectedCategory(category)}
+              />
+            ))}
           </div>
-        </>
-      )}
+        </div>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
+        <EaipChartList
+          title={`${selectedScopeMeta.label} Chart Stack`}
+          description={scopeDescription}
+          groups={chartGroups}
+          selectedChartId={selectedChartId}
+          isLoading={isStatusLoading || isCatalogLoading}
+          error={activeScope === "airport" && !selectedAirportCode ? null : null}
+          onChartSelect={setSelectedChartId}
+        />
+
+        <EaipPreviewPanel
+          contentUrl={contentUrl}
+          currentPositionLabel={currentPositionLabel}
+          hasNext={selectedChartIndex >= 0 && selectedChartIndex < visibleCharts.length - 1}
+          hasPrevious={selectedChartIndex > 0}
+          onNext={() => {
+            if (selectedChartIndex >= 0 && selectedChartIndex < visibleCharts.length - 1) {
+              setSelectedChartId(visibleCharts[selectedChartIndex + 1].chartId);
+            }
+          }}
+          onPrevious={() => {
+            if (selectedChartIndex > 0) {
+              setSelectedChartId(visibleCharts[selectedChartIndex - 1].chartId);
+            }
+          }}
+          selectedChart={selectedChart}
+          previewUrl={previewUrl}
+          isPreviewLoading={isPreviewLoading}
+          previewError={previewError}
+          airportLabel={airportLabel}
+          packageFile={status?.packageFile ?? null}
+          scopeLabel={selectedScopeMeta.label}
+          sourceLabel={status?.source ?? "n/a"}
+        />
+      </div>
     </section>
   );
 }

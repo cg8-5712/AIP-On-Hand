@@ -7,20 +7,22 @@ export type EaipChartGroup = {
 };
 
 type EaipChartListProps = {
+  description: string;
   groups: EaipChartGroup[];
   selectedChartId: string | null;
   isLoading: boolean;
   error: string | null;
-  airportCode: string | null;
+  title: string;
   onChartSelect: (chartId: string) => void;
 };
 
 export function EaipChartList({
+  description,
   groups,
   selectedChartId,
   isLoading,
   error,
-  airportCode,
+  title,
   onChartSelect,
 }: EaipChartListProps) {
   return (
@@ -28,9 +30,8 @@ export function EaipChartList({
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="section-kicker">Document Stack</p>
-          <p className="m-0 mt-2 text-sm text-slate-300">
-            {airportCode ? `Encrypted charts for ${airportCode}` : "Select an airport to load its chart set."}
-          </p>
+          <p className="m-0 mt-2 text-sm text-slate-100">{title}</p>
+          <p className="m-0 mt-1 text-[0.82rem] text-slate-400">{description}</p>
         </div>
         <span className="rounded-full border border-slate-700/60 bg-slate-950/80 px-3 py-1 text-[0.68rem] uppercase tracking-[0.12em] text-slate-400">
           {groups.reduce((count, group) => count + group.charts.length, 0)} sheets
@@ -48,9 +49,7 @@ export function EaipChartList({
       {!isLoading && !error && groups.length === 0 ? (
         <div className="overlay-card mt-4">
           <p className="muted-copy text-sm">
-            {airportCode
-              ? "No PDF charts were indexed for this airport in the current eAIP package."
-              : "Airport chart groups appear here after you choose an airport from the map page."}
+            No charts match the current scope and filters.
           </p>
         </div>
       ) : null}

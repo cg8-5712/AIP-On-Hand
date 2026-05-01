@@ -412,6 +412,14 @@ pub struct EaipAirportChartsResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct EaipCatalogResponse {
+    pub airport_charts: Vec<EaipChartSummary>,
+    pub general_documents: Vec<EaipChartSummary>,
+    pub enroute_documents: Vec<EaipChartSummary>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EaipStatusResponse {
     pub configured: bool,
     pub ready: bool,

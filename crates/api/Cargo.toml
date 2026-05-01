@@ -5,11 +5,13 @@ edition.workspace = true
 
 [dependencies]
 actix-cors.workspace = true
+actix-multipart = "0.7.2"
 actix-web.workspace = true
 aip-charts = { path = "../charts" }
 aip-domain = { path = "../domain" }
 aip-navigation = { path = "../navigation" }
 aip-weather = { path = "../weather" }
+futures-util.workspace = true
 serde.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

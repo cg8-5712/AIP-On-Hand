@@ -3,6 +3,7 @@ import type {
   AirportProceduresResponse,
   Bounds,
   EaipAirportChartsResponse,
+  EaipCatalogResponse,
   EaipStatusResponse,
   HealthResponse,
   MapLayersResponse,
@@ -17,6 +18,10 @@ const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
 type RequestOptions = {
   signal?: AbortSignal;
   cache?: RequestCache;
+};
+
+type JsonRequestOptions = RequestOptions & {
+  method?: "POST" | "PUT" | "PATCH" | "DELETE";
 };
 
 type LayerRequestOptions = RequestOptions & {
@@ -44,6 +49,31 @@ async function requestJson<T>(path: string, options?: RequestOptions): Promise<T
   return (await response.json()) as T;
 }
 
+async function sendJson<TResponse, TBody>(
+  path: string,
+  body: TBody,
+  options?: JsonRequestOptions,
+): Promise<TResponse> {
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    method: options?.method ?? "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+    cache: options?.cache,
+    signal: options?.signal,
+  });
+
+  if (!response.ok) {
+    const payload = await response
+      .json()
+      .catch(() => null) as { error?: string } | null;
+    throw new Error(payload?.error ?? `Request failed with status ${response.status}`);
+  }
+
+  return (await response.json()) as TResponse;
+}
+
 async function requestBlob(path: string, options?: RequestOptions): Promise<Blob> {
   const response = await fetch(`${apiBaseUrl}${path}`, {
     cache: options?.cache,
@@ -60,6 +90,28 @@ async function requestBlob(path: string, options?: RequestOptions): Promise<Blob
   return response.blob();
 }
 
+async function sendFormData<TResponse>(
+  path: string,
+  formData: FormData,
+  options?: JsonRequestOptions,
+): Promise<TResponse> {
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    method: options?.method ?? "POST",
+    body: formData,
+    cache: options?.cache,
+    signal: options?.signal,
+  });
+
+  if (!response.ok) {
+    const payload = await response
+      .json()
+      .catch(() => null) as { error?: string } | null;
+    throw new Error(payload?.error ?? `Request failed with status ${response.status}`);
+  }
+
+  return (await response.json()) as TResponse;
+}
+
 export function getHealth() {
   return requestJson<HealthResponse>("/api/v1/health");
 }
@@ -70,6 +122,49 @@ export function getVersion() {
 
 export function getEaipStatus(options?: RequestOptions) {
   return requestJson<EaipStatusResponse>("/api/v1/eaip/status", {
+    ...options,
+    cache: "no-store",
+  });
+}
+
+export function configureEaip(packagePath: string, password: string, options?: JsonRequestOptions) {
+  return sendJson<EaipStatusResponse, { packagePath: string; password: string }>(
+    "/api/v1/eaip/configure",
+    {
+      packagePath,
+      password,
+    },
+    {
+      ...options,
+      cache: "no-store",
+    },
+  );
+}
+
+export function unloadEaip(options?: JsonRequestOptions) {
+  return sendJson<EaipStatusResponse, Record<string, never>>(
+    "/api/v1/eaip/unload",
+    {},
+    {
+      ...options,
+      cache: "no-store",
+    },
+  );
+}
+
+export function uploadEaip(packageFile: File, password: string, options?: JsonRequestOptions) {
+  const formData = new FormData();
+  formData.append("package", packageFile);
+  formData.append("password", password);
+
+  return sendFormData<EaipStatusResponse>("/api/v1/eaip/upload", formData, {
+    ...options,
+    cache: "no-store",
+  });
+}
+
+export function getEaipCatalog(options?: RequestOptions) {
+  return requestJson<EaipCatalogResponse>("/api/v1/eaip/catalog", {
     ...options,
     cache: "no-store",
   });
@@ -90,6 +185,10 @@ export function getEaipChartContent(chartId: string, options?: RequestOptions) {
     ...options,
     cache: "no-store",
   });
+}
+
+export function getEaipChartContentUrl(chartId: string) {
+  return `${apiBaseUrl}/api/v1/eaip/charts/${encodeURIComponent(chartId)}/content`;
 }
 
 export function getMapLayers(bounds: Bounds, options: LayerRequestOptions) {

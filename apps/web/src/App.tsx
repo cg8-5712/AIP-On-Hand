@@ -21,6 +21,9 @@ import { formatUnixUtc } from "./features/weather/formatters";
 import { RoutePage } from "./features/route/RoutePage";
 import { SettingsPage } from "./features/settings/SettingsPage";
 import {
+  configureEaip,
+  getEaipCatalog,
+  getEaipStatus,
   getAirportOverview,
   getAirportProcedures,
   getHealth,
@@ -28,11 +31,15 @@ import {
   getProcedureGeometry,
   getVersion,
   searchNavdata,
+  unloadEaip,
+  uploadEaip,
 } from "./lib/api";
 import type {
   AirportFeature,
   AirportProceduresResponse,
   AirportWeatherOverviewResponse,
+  EaipCatalogResponse,
+  EaipStatusResponse,
   HealthResponse,
   LatLon,
   MapLayersResponse,
@@ -100,6 +107,12 @@ export default function App() {
   const [selectedProcedureId, setSelectedProcedureId] = useState<number | null>(null);
   const [selectedProcedureGeometry, setSelectedProcedureGeometry] =
     useState<ProcedureGeometryResponse | null>(null);
+  const [eaipCatalog, setEaipCatalog] = useState<EaipCatalogResponse | null>(null);
+  const [eaipCatalogError, setEaipCatalogError] = useState<string | null>(null);
+  const [isEaipCatalogLoading, setIsEaipCatalogLoading] = useState(false);
+  const [eaipStatus, setEaipStatus] = useState<EaipStatusResponse | null>(null);
+  const [eaipStatusError, setEaipStatusError] = useState<string | null>(null);
+  const [isEaipStatusLoading, setIsEaipStatusLoading] = useState(false);
   const [procedureFilter, setProcedureFilter] = useState<ProcedureFilter>("all");
   const [airportOverview, setAirportOverview] = useState<AirportWeatherOverviewResponse | null>(null);
   const [weatherError, setWeatherError] = useState<string | null>(null);
@@ -154,6 +167,73 @@ export default function App() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setEaipStatusError(null);
+    setIsEaipStatusLoading(true);
+
+    getEaipStatus({ signal: controller.signal })
+      .then((response) => {
+        setEaipStatus(response);
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setEaipStatus(null);
+        setEaipStatusError(error instanceof Error ? error.message : "Failed to load eAIP status");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setIsEaipStatusLoading(false);
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isEaipStatusLoading) {
+      return;
+    }
+
+    if (!eaipStatus?.ready) {
+      setEaipCatalog(null);
+      setEaipCatalogError(null);
+      setIsEaipCatalogLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setEaipCatalogError(null);
+    setIsEaipCatalogLoading(true);
+
+    getEaipCatalog({ signal: controller.signal })
+      .then((response) => {
+        setEaipCatalog(response);
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setEaipCatalog(null);
+        setEaipCatalogError(error instanceof Error ? error.message : "Failed to load eAIP chart catalog");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setIsEaipCatalogLoading(false);
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [eaipStatus, isEaipStatusLoading]);
 
   useEffect(() => {
     const trimmed = deferredSearchQuery.trim();
@@ -579,6 +659,24 @@ export default function App() {
     }));
   }
 
+  async function handleEaipConfigure(packagePath: string, password: string) {
+    const status = await configureEaip(packagePath, password);
+    setEaipStatus(status);
+    setEaipStatusError(null);
+  }
+
+  async function handleEaipUpload(packageFile: File, password: string) {
+    const status = await uploadEaip(packageFile, password);
+    setEaipStatus(status);
+    setEaipStatusError(null);
+  }
+
+  async function handleEaipUnload() {
+    const status = await unloadEaip();
+    setEaipStatus(status);
+    setEaipStatusError(null);
+  }
+
   return (
     <div className="app-shell">
       <div className="page-frame">
@@ -644,7 +742,15 @@ export default function App() {
               ) : null}
 
               {activePage === "eaip" ? (
-                <EaipPage selectedAirport={selectedAirport} />
+                <EaipPage
+                  catalog={eaipCatalog}
+                  catalogError={eaipCatalogError}
+                  isCatalogLoading={isEaipCatalogLoading}
+                  selectedAirport={selectedAirport}
+                  status={eaipStatus}
+                  statusError={eaipStatusError}
+                  isStatusLoading={isEaipStatusLoading}
+                />
               ) : null}
 
               <div className={activePage === "route" ? "block" : "hidden"} aria-hidden={activePage !== "route"}>
@@ -656,7 +762,16 @@ export default function App() {
                   selectedProcedureSummary={selectedProcedureSummary}
                 />
               ) : null}
-              {activePage === "settings" ? <SettingsPage /> : null}
+              {activePage === "settings" ? (
+                <SettingsPage
+                  eaipStatus={eaipStatus}
+                  eaipStatusError={eaipStatusError}
+                  isEaipStatusLoading={isEaipStatusLoading}
+                  onEaipConfigure={handleEaipConfigure}
+                  onEaipUpload={handleEaipUpload}
+                  onEaipUnload={handleEaipUnload}
+                />
+              ) : null}
             </div>
           </section>
 
