@@ -1,210 +1,281 @@
-import type { AirportFeature, AirportWeatherOverviewResponse } from "../../types/api";
-import { InlineError, MiniDataTile, WeatherDetailRow } from "../shared/PanelPrimitives";
-import { compactValues, formatElevation } from "../weather/formatters";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { AirportFeature, EaipAirportChartsResponse, EaipChartSummary, EaipStatusResponse } from "../../types/api";
+import { getEaipAirportCharts, getEaipChartContent, getEaipStatus } from "../../lib/api";
+import { InlineError, MiniDataTile } from "../shared/PanelPrimitives";
+import { EaipChartList, type EaipChartGroup } from "./EaipChartList";
+import { EaipPreviewPanel } from "./EaipPreviewPanel";
 
 type EaipPageProps = {
   selectedAirport: AirportFeature | null;
-  selectedWeatherStationId: string | null;
-  airportOverview: AirportWeatherOverviewResponse | null;
-  isLoading: boolean;
-  error: string | null;
-  stationTypes: string;
 };
 
-const documentSections = [
-  { title: "Airport Charts", detail: "ADC / GND / Parking" },
-  { title: "Instrument Departures", detail: "SID / RNAV / text" },
-  { title: "Arrivals And Approaches", detail: "STAR / IAC / minima" },
-  { title: "Local Notes", detail: "Noise / restrictions / remarks" },
-];
+const categoryOrder = ["ADC", "APDC", "GMC", "PARKING", "SID", "STAR", "IAC", "VAC", "AOC"];
 
-export function EaipPage({
-  selectedAirport,
-  selectedWeatherStationId,
-  airportOverview,
-  isLoading,
-  error,
-  stationTypes,
-}: EaipPageProps) {
+function categoryRank(category: string) {
+  const index = categoryOrder.indexOf(category);
+  return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+}
+
+export function EaipPage({ selectedAirport }: EaipPageProps) {
+  const [status, setStatus] = useState<EaipStatusResponse | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [isStatusLoading, setIsStatusLoading] = useState(true);
+  const [airportCharts, setAirportCharts] = useState<EaipAirportChartsResponse | null>(null);
+  const [chartsError, setChartsError] = useState<string | null>(null);
+  const [isChartsLoading, setIsChartsLoading] = useState(false);
+  const [selectedChartId, setSelectedChartId] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const previewUrlRef = useRef<string | null>(null);
+
+  const selectedAirportCode = useMemo(() => {
+    if (selectedAirport?.icao?.trim()) {
+      return selectedAirport.icao.trim().toUpperCase();
+    }
+
+    if (selectedAirport?.ident?.trim()) {
+      return selectedAirport.ident.trim().toUpperCase();
+    }
+
+    return null;
+  }, [selectedAirport]);
+
+  const airportLabel = selectedAirport
+    ? `${selectedAirport.ident}${selectedAirport.icao ? ` / ${selectedAirport.icao}` : ""}`
+    : "n/a";
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setStatusError(null);
+    setIsStatusLoading(true);
+
+    getEaipStatus({ signal: controller.signal })
+      .then((response) => {
+        setStatus(response);
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setStatus(null);
+        setStatusError(error instanceof Error ? error.message : "Failed to load eAIP status");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setIsStatusLoading(false);
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedAirportCode) {
+      setAirportCharts(null);
+      setChartsError(null);
+      setIsChartsLoading(false);
+      setSelectedChartId(null);
+      return;
+    }
+
+    if (isStatusLoading) {
+      return;
+    }
+
+    if (status && !status.ready) {
+      setAirportCharts(null);
+      setChartsError(status.message ?? "The encrypted eAIP package is not ready.");
+      setIsChartsLoading(false);
+      setSelectedChartId(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    setChartsError(null);
+    setIsChartsLoading(true);
+
+    getEaipAirportCharts(selectedAirportCode, { signal: controller.signal })
+      .then((response) => {
+        setAirportCharts(response);
+        setSelectedChartId((current) =>
+          current && response.charts.some((chart) => chart.chartId === current)
+            ? current
+            : response.charts[0]?.chartId ?? null,
+        );
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setAirportCharts(null);
+        setSelectedChartId(null);
+        setChartsError(error instanceof Error ? error.message : "Failed to load airport charts");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setIsChartsLoading(false);
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [isStatusLoading, selectedAirportCode, status]);
+
+  const selectedChart = useMemo(() => {
+    return airportCharts?.charts.find((chart) => chart.chartId === selectedChartId) ?? null;
+  }, [airportCharts, selectedChartId]);
+
+  useEffect(() => {
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = null;
+    }
+    setPreviewUrl(null);
+
+    if (!selectedChartId) {
+      setPreviewError(null);
+      setIsPreviewLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setPreviewError(null);
+    setIsPreviewLoading(true);
+
+    getEaipChartContent(selectedChartId, { signal: controller.signal })
+      .then((blob) => {
+        const nextPreviewUrl = URL.createObjectURL(blob);
+        previewUrlRef.current = nextPreviewUrl;
+        setPreviewUrl(nextPreviewUrl);
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setPreviewUrl(null);
+        setPreviewError(error instanceof Error ? error.message : "Failed to load chart preview");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setIsPreviewLoading(false);
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [selectedChartId]);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrlRef.current) {
+        URL.revokeObjectURL(previewUrlRef.current);
+      }
+    };
+  }, []);
+
+  const groupedCharts = useMemo<EaipChartGroup[]>(() => {
+    const groups = new Map<string, EaipChartSummary[]>();
+
+    for (const chart of airportCharts?.charts ?? []) {
+      const group = groups.get(chart.category) ?? [];
+      group.push(chart);
+      groups.set(chart.category, group);
+    }
+
+    return [...groups.entries()]
+      .sort((left, right) => {
+        const byRank = categoryRank(left[0]) - categoryRank(right[0]);
+        if (byRank !== 0) {
+          return byRank;
+        }
+
+        return left[0].localeCompare(right[0]);
+      })
+      .map(([category, charts]) => ({
+        category,
+        charts,
+      }));
+  }, [airportCharts]);
+
   return (
     <section className="grid gap-4">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="section-kicker">eAIP Desk</p>
-          <h2 className="section-title">Chart Viewer And Airport Record</h2>
-          <p className="support-copy mt-2 max-w-[48rem] text-sm">
-            This workspace is reserved for your encrypted eAIP package, chart navigation, and airport
-            reference context. The viewer surface is wired as a product shell now so the final chart
-            loader can drop into a stable layout.
+          <h2 className="section-title mt-2">Encrypted Chart Viewer</h2>
+          <p className="support-copy mt-2 max-w-[52rem] text-sm">
+            Airport chart access is now wired to the encrypted package backend. The browser only
+            receives metadata and on-demand PDF bytes for the selected sheet.
           </p>
         </div>
-        <div className="rounded-full border border-amber-300/18 bg-amber-400/8 px-3 py-2 text-[0.72rem] uppercase tracking-[0.12em] text-amber-100">
-          encrypted pack pending
+        <div
+          className={
+            `rounded-full border px-3 py-2 text-[0.72rem] uppercase tracking-[0.12em] ` +
+            (status?.ready
+              ? "border-emerald-300/18 bg-emerald-400/8 text-emerald-100"
+              : "border-amber-300/18 bg-amber-400/8 text-amber-100")
+          }
+        >
+          {status?.ready ? "memory-only ready" : "package offline"}
         </div>
       </div>
 
-      {selectedWeatherStationId ? (
-        <>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <MiniDataTile label="Airport" value={selectedAirport?.name ?? "n/a"} />
-            <MiniDataTile label="ICAO / Ident" value={compactValues([selectedAirport?.icao, selectedAirport?.ident])} />
-            <MiniDataTile label="Station" value={selectedWeatherStationId} />
-            <MiniDataTile label="Document Set" value="preview shell" />
-          </div>
+      {statusError ? <InlineError message={statusError} /> : null}
+      {status?.message && !status.ready ? <InlineError message={status.message} /> : null}
 
-          {error ? <InlineError message={error} className="mt-4" /> : null}
-          {isLoading ? (
-            <div className="overlay-card mt-4">
-              <p className="muted-copy text-sm">Loading airport reference context for the eAIP desk...</p>
-            </div>
-          ) : null}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MiniDataTile label="Package" value={status?.packageFile ?? "not configured"} />
+        <MiniDataTile label="AIRAC" value={typeof status?.cycle === "number" ? String(status.cycle) : "n/a"} />
+        <MiniDataTile label="Indexed PDFs" value={typeof status?.chartCount === "number" ? String(status.chartCount) : "0"} />
+        <MiniDataTile label="Delivery" value={status?.memoryOnly ? "memory-only" : "n/a"} />
+      </div>
 
-          <div className="mt-4 grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)]">
-            <div className="rounded-[22px] border border-slate-700/60 bg-slate-950/55 p-4">
-              <p className="section-kicker">Document Stack</p>
-              <div className="mt-4 grid gap-2">
-                {documentSections.map((section) => (
-                  <button
-                    key={section.title}
-                    type="button"
-                    className="grid cursor-pointer gap-1 rounded-[16px] border border-slate-700/60 bg-slate-950/56 px-3 py-3 text-left transition duration-200 hover:border-cyan-300/24 hover:bg-slate-900/84 motion-reduce:transition-none"
-                  >
-                    <span className="text-sm font-semibold text-slate-100">{section.title}</span>
-                    <span className="text-[0.8rem] text-slate-500">{section.detail}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="rounded-[22px] border border-slate-700/60 bg-slate-950/55 p-4">
-              <p className="section-kicker">Preview Surface</p>
-              <div className="mt-4 rounded-[28px] border border-slate-300/20 bg-[#ede9df] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.34)]">
-                <div className="rounded-[24px] border border-black/6 bg-[#f5f2e9] p-5 shadow-[0_16px_32px_rgba(15,23,42,0.14)]">
-                  <div className="flex items-center justify-between gap-3 border-b border-black/8 pb-3 text-[#2f3640]">
-                    <div>
-                      <p className="m-0 text-[0.72rem] uppercase tracking-[0.16em] text-slate-500">Viewer Mock</p>
-                      <p className="m-0 mt-1 text-[1rem] font-semibold">
-                        {selectedAirport?.ident ?? "No Airport"} Ground Chart
-                      </p>
-                    </div>
-                    <span className="rounded-full border border-black/8 bg-white/60 px-3 py-1 text-[0.68rem] uppercase tracking-[0.12em] text-slate-600">
-                      chart sheet
-                    </span>
-                  </div>
-
-                  <div className="mt-4 grid gap-4 xl:grid-cols-[1.3fr_0.9fr]">
-                    <div className="grid gap-4">
-                      <div className="relative aspect-[1.18] overflow-hidden rounded-[20px] border border-black/8 bg-white/65">
-                        <div className="absolute inset-x-5 top-5 h-8 rounded-full bg-slate-300/38" />
-                        <div className="absolute left-6 top-16 h-[60%] w-[45%] rounded-[22px] border border-slate-400/20 bg-slate-300/24" />
-                        <div className="absolute right-6 top-16 h-[22%] w-[34%] rounded-[18px] border border-slate-400/20 bg-sky-100/45" />
-                        <div className="absolute bottom-6 left-6 h-[24%] w-[72%] rounded-[18px] border border-slate-400/20 bg-slate-300/20" />
-                        <div className="absolute left-[18%] top-[40%] h-2 w-[46%] rotate-[-18deg] rounded-full bg-slate-500/36" />
-                        <div className="absolute left-[31%] top-[51%] h-2 w-[42%] rotate-[12deg] rounded-full bg-slate-500/36" />
-                        <div className="absolute left-[24%] top-[62%] h-2 w-[52%] rotate-[29deg] rounded-full bg-slate-500/36" />
-                      </div>
-                    </div>
-
-                    <div className="grid gap-4">
-                      <div className="rounded-[18px] border border-black/8 bg-white/56 p-4">
-                        <p className="m-0 text-[0.72rem] uppercase tracking-[0.16em] text-slate-500">Legend Strip</p>
-                        <div className="mt-3 grid gap-2 text-[0.84rem] text-slate-700">
-                          <span>Taxiway labels can be promoted here later.</span>
-                          <span>Surface markings and stands can be layered separately.</span>
-                          <span>Viewer zoom and page fit controls will attach to this block.</span>
-                        </div>
-                      </div>
-                      <div className="rounded-[18px] border border-black/8 bg-white/56 p-4">
-                        <p className="m-0 text-[0.72rem] uppercase tracking-[0.16em] text-slate-500">Import State</p>
-                        <p className="m-0 mt-3 text-sm leading-6 text-slate-700">
-                          Waiting for encrypted chart package integration. The layout is already sized for
-                          a document canvas, thumbnail stack, and airport-specific chart set switching.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {airportOverview ? (
-            <div className="mt-4 grid gap-4 xl:grid-cols-2">
-              <div className="rounded-[18px] border border-slate-700/60 bg-slate-950/55 p-4">
-                <p className="section-kicker">Airport Record</p>
-                <div className="mt-4 grid gap-2">
-                  <WeatherDetailRow label="Name" value={airportOverview.airport?.name ?? selectedAirport?.name ?? "n/a"} />
-                  <WeatherDetailRow
-                    label="ICAO / IATA / FAA"
-                    value={compactValues([
-                      airportOverview.airport?.icaoId,
-                      airportOverview.airport?.iataId,
-                      airportOverview.airport?.faaId,
-                    ])}
-                  />
-                  <WeatherDetailRow
-                    label="Region"
-                    value={compactValues([airportOverview.airport?.state, airportOverview.airport?.country])}
-                  />
-                  <WeatherDetailRow label="Type" value={airportOverview.airport?.airportType ?? "n/a"} />
-                  <WeatherDetailRow
-                    label="Elevation"
-                    value={formatElevation(airportOverview.airport?.elevationFt, airportOverview.station?.elevationM)}
-                  />
-                  <WeatherDetailRow
-                    label="Runway Count"
-                    value={
-                      typeof airportOverview.airport?.runwayCount === "number"
-                        ? String(airportOverview.airport.runwayCount)
-                        : "n/a"
-                    }
-                  />
-                </div>
-              </div>
-
-              <div className="rounded-[18px] border border-slate-700/60 bg-slate-950/55 p-4">
-                <p className="section-kicker">Observation Station</p>
-                <div className="mt-4 grid gap-2">
-                  <WeatherDetailRow label="Site" value={airportOverview.station?.site ?? "n/a"} />
-                  <WeatherDetailRow
-                    label="ICAO / IATA / FAA"
-                    value={compactValues([
-                      airportOverview.station?.icaoId,
-                      airportOverview.station?.iataId,
-                      airportOverview.station?.faaId,
-                    ])}
-                  />
-                  <WeatherDetailRow label="Site Types" value={stationTypes} />
-                  <WeatherDetailRow
-                    label="Priority"
-                    value={
-                      typeof airportOverview.station?.priority === "number"
-                        ? String(airportOverview.station.priority)
-                        : "n/a"
-                    }
-                  />
-                  <WeatherDetailRow
-                    label="Coordinates"
-                    value={compactValues([
-                      typeof airportOverview.station?.latitude === "number"
-                        ? airportOverview.station.latitude.toFixed(4)
-                        : undefined,
-                      typeof airportOverview.station?.longitude === "number"
-                        ? airportOverview.station.longitude.toFixed(4)
-                        : undefined,
-                    ])}
-                  />
-                </div>
-              </div>
-            </div>
-          ) : null}
-        </>
-      ) : (
-        <div className="overlay-card mt-5">
+      {!selectedAirportCode ? (
+        <div className="overlay-card mt-2">
           <p className="muted-copy text-sm">
-            Select an airport from the map page to preload airport reference context for the eAIP desk.
+            Select an airport from the map page to load its airport chart collection into the eAIP desk.
           </p>
         </div>
+      ) : (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <MiniDataTile label="Selected Airport" value={airportLabel} />
+            <MiniDataTile label="Resolved ICAO" value={airportCharts?.resolvedAirportIcao ?? selectedAirportCode} />
+            <MiniDataTile
+              label="Airport Sheets"
+              value={typeof airportCharts?.charts.length === "number" ? String(airportCharts.charts.length) : "0"}
+            />
+            <MiniDataTile label="Viewer State" value={selectedChart ? selectedChart.category : "idle"} />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+            <EaipChartList
+              groups={groupedCharts}
+              selectedChartId={selectedChartId}
+              isLoading={isChartsLoading}
+              error={chartsError}
+              airportCode={airportCharts?.resolvedAirportIcao ?? selectedAirportCode}
+              onChartSelect={setSelectedChartId}
+            />
+
+            <EaipPreviewPanel
+              selectedChart={selectedChart}
+              previewUrl={previewUrl}
+              isPreviewLoading={isPreviewLoading}
+              previewError={previewError}
+              airportLabel={airportLabel}
+              packageFile={status?.packageFile ?? null}
+            />
+          </div>
+        </>
       )}
     </section>
   );

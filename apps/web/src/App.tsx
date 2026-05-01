@@ -644,14 +644,7 @@ export default function App() {
               ) : null}
 
               {activePage === "eaip" ? (
-                <EaipPage
-                  selectedAirport={selectedAirport}
-                  selectedWeatherStationId={selectedWeatherStationId}
-                  airportOverview={airportOverview}
-                  isLoading={isWeatherLoading}
-                  error={weatherError}
-                  stationTypes={stationTypes}
-                />
+                <EaipPage selectedAirport={selectedAirport} />
               ) : null}
 
               <div className={activePage === "route" ? "block" : "hidden"} aria-hidden={activePage !== "route"}>

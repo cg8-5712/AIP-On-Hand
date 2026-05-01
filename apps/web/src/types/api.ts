@@ -325,3 +325,35 @@ export type AirportWeatherOverviewResponse = {
   noaa: NoaaWeatherSupplement;
   warnings: string[];
 };
+
+export type EaipChartScope = "airport" | "enroute" | "general" | "other";
+
+export type EaipChartSummary = {
+  chartId: string;
+  scope: EaipChartScope;
+  airportIcao?: string | null;
+  category: string;
+  title: string;
+  fileName: string;
+  isMerged: boolean;
+};
+
+export type EaipAirportChartsResponse = {
+  requestedAirport: string;
+  resolvedAirportIcao: string;
+  charts: EaipChartSummary[];
+};
+
+export type EaipStatusResponse = {
+  configured: boolean;
+  ready: boolean;
+  packageFile?: string | null;
+  cycle?: number | null;
+  chartCount: number;
+  airportCount: number;
+  generalDocumentCount: number;
+  enrouteDocumentCount: number;
+  memoryOnly: boolean;
+  source: string;
+  message?: string | null;
+};

@@ -1,11 +1,12 @@
 use actix_cors::Cors;
 use actix_web::{
     get,
-    http::StatusCode,
+    http::{header, StatusCode},
     middleware::Logger,
-    web::{Data, Json, Path, Query},
+    web::{self, Data, Json, Path, Query},
     App, HttpResponse, HttpServer, Responder, ResponseError,
 };
+use aip_charts::{ChartError, EaipChartService};
 use aip_navigation::{LayerQuery, NavDb};
 use aip_weather::{WeatherError, WeatherService};
 use serde::{Deserialize, Serialize};
@@ -16,12 +17,15 @@ use tracing_subscriber::EnvFilter;
 #[derive(Clone)]
 struct AppState {
     nav_db: NavDb,
+    chart_service: EaipChartService,
     weather_service: WeatherService,
 }
 
 #[derive(Debug)]
 enum ApiError {
+    BadRequest(String),
     NotFound(String),
+    ServiceUnavailable(String),
     Upstream(String),
     Internal(String),
 }
@@ -29,9 +33,11 @@ enum ApiError {
 impl fmt::Display for ApiError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NotFound(message) | Self::Upstream(message) | Self::Internal(message) => {
-                formatter.write_str(message)
-            }
+            Self::BadRequest(message)
+            | Self::NotFound(message)
+            | Self::ServiceUnavailable(message)
+            | Self::Upstream(message)
+            | Self::Internal(message) => formatter.write_str(message),
         }
     }
 }
@@ -39,7 +45,9 @@ impl fmt::Display for ApiError {
 impl ResponseError for ApiError {
     fn status_code(&self) -> StatusCode {
         match self {
+            Self::BadRequest(_) => StatusCode::BAD_REQUEST,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
+            Self::ServiceUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::Upstream(_) => StatusCode::BAD_GATEWAY,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
@@ -122,6 +130,65 @@ async fn version() -> impl Responder {
         service: env!("CARGO_PKG_NAME"),
         version: env!("CARGO_PKG_VERSION"),
     })
+}
+
+#[get("/api/v1/eaip/status")]
+async fn eaip_status(state: Data<AppState>) -> impl Responder {
+    HttpResponse::Ok().json(state.chart_service.status())
+}
+
+#[get("/api/v1/eaip/airports/{airport_ident}/charts")]
+async fn eaip_airport_charts(
+    state: Data<AppState>,
+    airport_ident: Path<String>,
+) -> Result<Json<aip_domain::EaipAirportChartsResponse>, ApiError> {
+    let payload = state
+        .chart_service
+        .list_airport_charts(&airport_ident.into_inner())
+        .map_err(map_chart_error)?;
+
+    Ok(Json(payload))
+}
+
+#[get("/api/v1/eaip/charts/{chart_id}/content")]
+async fn eaip_chart_content(
+    state: Data<AppState>,
+    chart_id: Path<String>,
+) -> Result<HttpResponse, ApiError> {
+    let chart_id = chart_id.into_inner();
+    let summary = state
+        .chart_service
+        .chart_summary(&chart_id)
+        .map_err(map_chart_error)?;
+
+    let chart_service = state.chart_service.clone();
+    let chart_id_for_read = chart_id.clone();
+    let bytes = web::block(move || chart_service.read_chart_bytes(&chart_id_for_read))
+        .await
+        .map_err(|error| {
+            ApiError::Internal(format!(
+                "failed to load eAIP chart content in background task: {error}"
+            ))
+        })?
+        .map_err(map_chart_error)?;
+
+    Ok(HttpResponse::Ok()
+        .insert_header((header::CONTENT_TYPE, "application/pdf"))
+        .insert_header((
+            header::CACHE_CONTROL,
+            "no-store, no-cache, must-revalidate, private, max-age=0",
+        ))
+        .insert_header((header::PRAGMA, "no-cache"))
+        .insert_header((header::EXPIRES, "0"))
+        .insert_header((header::X_CONTENT_TYPE_OPTIONS, "nosniff"))
+        .insert_header((
+            header::CONTENT_DISPOSITION,
+            format!(
+                "inline; filename=\"{}\"",
+                sanitize_content_disposition_filename(&summary.file_name)
+            ),
+        ))
+        .body(bytes))
 }
 
 #[get("/api/v1/map/layers")]
@@ -218,7 +285,7 @@ async fn route_plan(
     let departure = query.departure.trim();
     let arrival = query.arrival.trim();
     if departure.is_empty() || arrival.is_empty() {
-        return Err(ApiError::Internal(
+        return Err(ApiError::BadRequest(
             "departure and arrival airport identifiers are required".to_string(),
         ));
     }
@@ -243,10 +310,26 @@ async fn route_plan(
 
 fn map_weather_error(error: WeatherError) -> ApiError {
     match error {
-        WeatherError::InvalidInput(message) => ApiError::Internal(message),
+        WeatherError::InvalidInput(message) => ApiError::BadRequest(message),
         WeatherError::NotFound(message) => ApiError::NotFound(message),
         WeatherError::Upstream(message) => ApiError::Upstream(message),
     }
+}
+
+fn map_chart_error(error: ChartError) -> ApiError {
+    match error {
+        ChartError::InvalidInput(message) => ApiError::BadRequest(message),
+        ChartError::Unavailable(message) => ApiError::ServiceUnavailable(message),
+        ChartError::NotFound(message) => ApiError::NotFound(message),
+        ChartError::Internal(message) => ApiError::Internal(message),
+    }
+}
+
+fn sanitize_content_disposition_filename(value: &str) -> String {
+    value
+        .chars()
+        .filter(|character| *character != '"' && *character != '\r' && *character != '\n')
+        .collect()
 }
 
 fn configure_logging() {
@@ -270,7 +353,9 @@ fn port() -> u16 {
 fn nav_db_path() -> PathBuf {
     env::var("AIP_NAVDB_PATH")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(r"D:\little_navmap_navigraph.sqlite"))
+        .unwrap_or_else(|_| {
+            PathBuf::from(r"F:\bian\jsproject\Open-Navigraph\data\little_navmap_navigraph.sqlite")
+        })
 }
 
 #[actix_web::main]
@@ -286,6 +371,7 @@ async fn main() -> io::Result<()> {
             format!("failed to open nav database: {error}"),
         )
     })?;
+    let chart_service = EaipChartService::from_env();
     let weather_service = WeatherService::from_env().map_err(|error| {
         io::Error::new(
             io::ErrorKind::Other,
@@ -301,6 +387,7 @@ async fn main() -> io::Result<()> {
 
     let state = Data::new(AppState {
         nav_db,
+        chart_service,
         weather_service,
     });
 
@@ -312,6 +399,9 @@ async fn main() -> io::Result<()> {
             .wrap(Cors::permissive())
             .service(health)
             .service(version)
+            .service(eaip_status)
+            .service(eaip_airport_charts)
+            .service(eaip_chart_content)
             .service(map_layers)
             .service(airport_procedures)
             .service(airport_overview)

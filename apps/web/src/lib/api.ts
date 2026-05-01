@@ -2,6 +2,8 @@ import type {
   AirportWeatherOverviewResponse,
   AirportProceduresResponse,
   Bounds,
+  EaipAirportChartsResponse,
+  EaipStatusResponse,
   HealthResponse,
   MapLayersResponse,
   ProcedureGeometryResponse,
@@ -14,6 +16,7 @@ const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
 
 type RequestOptions = {
   signal?: AbortSignal;
+  cache?: RequestCache;
 };
 
 type LayerRequestOptions = RequestOptions & {
@@ -27,14 +30,34 @@ type LayerRequestOptions = RequestOptions & {
 
 async function requestJson<T>(path: string, options?: RequestOptions): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, {
+    cache: options?.cache,
     signal: options?.signal,
   });
 
   if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}`);
+    const payload = await response
+      .json()
+      .catch(() => null) as { error?: string } | null;
+    throw new Error(payload?.error ?? `Request failed with status ${response.status}`);
   }
 
   return (await response.json()) as T;
+}
+
+async function requestBlob(path: string, options?: RequestOptions): Promise<Blob> {
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    cache: options?.cache,
+    signal: options?.signal,
+  });
+
+  if (!response.ok) {
+    const payload = await response
+      .json()
+      .catch(() => null) as { error?: string } | null;
+    throw new Error(payload?.error ?? `Request failed with status ${response.status}`);
+  }
+
+  return response.blob();
 }
 
 export function getHealth() {
@@ -43,6 +66,30 @@ export function getHealth() {
 
 export function getVersion() {
   return requestJson<VersionResponse>("/api/v1/version");
+}
+
+export function getEaipStatus(options?: RequestOptions) {
+  return requestJson<EaipStatusResponse>("/api/v1/eaip/status", {
+    ...options,
+    cache: "no-store",
+  });
+}
+
+export function getEaipAirportCharts(airportIdent: string, options?: RequestOptions) {
+  return requestJson<EaipAirportChartsResponse>(
+    `/api/v1/eaip/airports/${encodeURIComponent(airportIdent)}/charts`,
+    {
+      ...options,
+      cache: "no-store",
+    },
+  );
+}
+
+export function getEaipChartContent(chartId: string, options?: RequestOptions) {
+  return requestBlob(`/api/v1/eaip/charts/${encodeURIComponent(chartId)}/content`, {
+    ...options,
+    cache: "no-store",
+  });
 }
 
 export function getMapLayers(bounds: Bounds, options: LayerRequestOptions) {

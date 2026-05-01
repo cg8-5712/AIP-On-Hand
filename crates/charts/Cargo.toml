@@ -1,0 +1,10 @@
+[package]
+name = "aip-charts"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+aip-domain = { path = "../domain" }
+base64.workspace = true
+eaip_manager = { package = "eaip-manager", path = "path to eaip-manager" }
+tracing.workspace = true
