@@ -113,7 +113,7 @@ export function LeftSidebar({
               </div>
               <span className="text-[0.95rem] text-slate-100">{airport.name}</span>
               <span className="text-[0.8rem] text-slate-500">
-                {airport.country ?? "N/A"} / RWY {airport.longestRunwayLength || "n/a"} m
+                {airport.country ?? "N/A"} / RWY {airport.longestRunwayLength || "n/a"} ft
               </span>
             </button>
           </li>

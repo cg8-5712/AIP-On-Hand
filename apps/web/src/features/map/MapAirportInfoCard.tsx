@@ -59,7 +59,7 @@ function formatRunwaySummary(
   }
 
   if (airport?.longestRunwayLength) {
-    return `1+ / longest ${airport.longestRunwayLength} m`;
+    return `1+ / longest ${airport.longestRunwayLength} ft`;
   }
 
   return "n/a";
@@ -387,7 +387,7 @@ export function MapAirportInfoCard({
             />
             <WeatherDetailRow
               label="Longest Runway"
-              value={selectedAirport?.longestRunwayLength ? `${selectedAirport.longestRunwayLength} m` : "n/a"}
+              value={selectedAirport?.longestRunwayLength ? `${selectedAirport.longestRunwayLength} ft` : "n/a"}
             />
             <WeatherDetailRow
               label="Runway Count"
