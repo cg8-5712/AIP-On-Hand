@@ -130,6 +130,8 @@ export default function App() {
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const focusRequestIdRef = useRef(0);
   const showMapStage = activePage !== "eaip";
+  const showDetailHeader = activePage !== "eaip" && activePage !== "route";
+  const useInternalPageScroll = activePage === "eaip";
   const shellGridClass =
     activePage === "eaip"
       ? "grid gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-[110px_minmax(0,1fr)]"
@@ -686,27 +688,35 @@ export default function App() {
           <SideRail activePage={activePage} onPageChange={setActivePage} />
 
           <section className={detailPanelClass}>
-            <DetailHeader
-              activePage={activePage}
-              searchQuery={searchQuery}
-              deferredSearchQuery={deferredSearchQuery}
-              isSearching={isSearching}
-              searchError={searchError}
-              searchResults={searchResults}
-              onSearchQueryChange={setSearchQuery}
-              onSearchSelection={handleSearchSelection}
-              backendStatus={bootstrap.health?.status ?? "pending"}
-              airacCycle={layers?.metadata.airacCycle ?? "loading"}
-              selectedAirportLabel={selectedAirportLabel}
-              selectedProcedureLabel={selectedProcedureSummary?.name ?? "none"}
-              weatherFlightCategory={weatherFlightCategory}
-              stationTypes={stationTypes}
-              bootstrapError={bootstrap.error}
-              layerError={layerError}
-              procedureError={procedureError}
-            />
+            {showDetailHeader ? (
+              <DetailHeader
+                activePage={activePage}
+                searchQuery={searchQuery}
+                deferredSearchQuery={deferredSearchQuery}
+                isSearching={isSearching}
+                searchError={searchError}
+                searchResults={searchResults}
+                onSearchQueryChange={setSearchQuery}
+                onSearchSelection={handleSearchSelection}
+                backendStatus={bootstrap.health?.status ?? "pending"}
+                airacCycle={layers?.metadata.airacCycle ?? "loading"}
+                selectedAirportLabel={selectedAirportLabel}
+                selectedProcedureLabel={selectedProcedureSummary?.name ?? "none"}
+                weatherFlightCategory={weatherFlightCategory}
+                stationTypes={stationTypes}
+                bootstrapError={bootstrap.error}
+                layerError={layerError}
+                procedureError={procedureError}
+              />
+            ) : null}
 
-            <div className="scroll-panel min-h-0 flex-1 overflow-y-auto p-5">
+            <div
+              className={
+                showDetailHeader || !useInternalPageScroll
+                  ? "scroll-panel min-h-0 flex-1 overflow-y-auto p-5"
+                  : "min-h-0 flex-1 overflow-hidden p-5"
+              }
+            >
               {activePage === "map" ? (
                 <MapDetailPage
                   layers={layers}

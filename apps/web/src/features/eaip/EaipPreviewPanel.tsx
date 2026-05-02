@@ -13,9 +13,7 @@ type EaipPreviewPanelProps = {
   isPreviewLoading: boolean;
   previewError: string | null;
   airportLabel: string;
-  packageFile: string | null;
   scopeLabel: string;
-  sourceLabel: string;
 };
 
 export function EaipPreviewPanel({
@@ -30,22 +28,17 @@ export function EaipPreviewPanel({
   isPreviewLoading,
   previewError,
   airportLabel,
-  packageFile,
   scopeLabel,
-  sourceLabel,
 }: EaipPreviewPanelProps) {
   return (
-    <div className="rounded-[22px] border border-slate-700/60 bg-slate-950/55 p-4">
+    <div className="flex min-h-0 flex-col rounded-[22px] border border-slate-700/60 bg-slate-950/55 p-4 xl:h-full">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="section-kicker">Preview Surface</p>
           <h3 className="section-title mt-2">
             {selectedChart ? selectedChart.title : "Awaiting chart selection"}
           </h3>
-          <p className="muted-copy mt-2 text-sm">
-            PDF bytes are decrypted and streamed from memory only. No chart file is written to disk by
-            this viewer flow.
-          </p>
+          <p className="muted-copy mt-2 text-sm">Preview the selected chart inline or open it in a separate tab.</p>
         </div>
         <button
           type="button"
@@ -68,7 +61,7 @@ export function EaipPreviewPanel({
 
       {previewError ? <InlineError message={previewError} className="mt-4" /> : null}
 
-      <div className="mt-4 grid gap-4">
+      <div className="mt-4 grid min-h-0 flex-1 gap-4 xl:grid-rows-[minmax(0,1fr)_auto]">
         <div className="overflow-hidden rounded-[26px] border border-slate-300/12 bg-slate-900/80">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/90 bg-slate-950/78 px-4 py-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -110,7 +103,7 @@ export function EaipPreviewPanel({
           </div>
 
           {isPreviewLoading ? (
-            <div className="flex min-h-[560px] items-center justify-center px-6 py-10">
+            <div className="flex min-h-[420px] items-center justify-center px-6 py-10 xl:h-[calc(100%-57px)] xl:min-h-0">
               <p className="muted-copy text-sm">Decrypting and streaming the selected PDF chart...</p>
             </div>
           ) : null}
@@ -119,10 +112,10 @@ export function EaipPreviewPanel({
             <object
               data={previewUrl}
               type="application/pdf"
-              className="h-[72vh] min-h-[560px] w-full bg-white"
+              className="h-[72vh] min-h-[420px] w-full bg-white xl:h-[calc(100%-57px)] xl:min-h-0"
               aria-label={selectedChart?.title ?? "Selected eAIP chart"}
             >
-              <div className="flex min-h-[560px] items-center justify-center px-6 py-10">
+              <div className="flex min-h-[420px] items-center justify-center px-6 py-10 xl:h-full xl:min-h-0">
                 <p className="muted-copy max-w-[30rem] text-center text-sm">
                   The browser did not render the PDF inline. Use the open button to view this chart in a
                   separate tab backed by the same in-memory object URL.
@@ -132,7 +125,7 @@ export function EaipPreviewPanel({
           ) : null}
 
           {!isPreviewLoading && !previewUrl ? (
-            <div className="flex min-h-[560px] items-center justify-center px-6 py-10">
+            <div className="flex min-h-[420px] items-center justify-center px-6 py-10 xl:h-[calc(100%-57px)] xl:min-h-0">
               <p className="muted-copy max-w-[30rem] text-center text-sm">
                 Choose a chart from the left stack to start an inline preview.
               </p>
@@ -145,19 +138,18 @@ export function EaipPreviewPanel({
             <p className="section-kicker">Sheet Meta</p>
             <div className="mt-4 grid gap-2">
               <WeatherDetailRow label="Airport" value={airportLabel || "n/a"} />
+              <WeatherDetailRow label="Scope" value={scopeLabel} />
               <WeatherDetailRow label="Category" value={selectedChart?.category ?? "n/a"} />
               <WeatherDetailRow label="File" value={selectedChart?.fileName ?? "n/a"} />
               <WeatherDetailRow label="Merged" value={selectedChart?.isMerged ? "Yes" : "No"} />
-              <WeatherDetailRow label="Package" value={packageFile ?? "n/a"} />
-              <WeatherDetailRow label="Source" value={sourceLabel} />
             </div>
           </div>
 
           <div className="rounded-[18px] border border-slate-700/60 bg-slate-950/56 p-4">
-            <p className="section-kicker">Handling Rules</p>
+            <p className="section-kicker">Preview</p>
             <p className="m-0 mt-3 text-sm leading-6 text-slate-300">
-              Passwords stay server-side, chart bytes are loaded on demand, and object URLs are revoked
-              when a new chart replaces the current preview.
+              Use the sheet list on the left to switch charts, or step through the current result set
+              with the previous and next controls above the preview.
             </p>
           </div>
         </div>

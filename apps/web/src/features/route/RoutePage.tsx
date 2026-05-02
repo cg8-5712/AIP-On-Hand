@@ -364,10 +364,13 @@ export function RoutePage({ onRoutePreviewChange }: RoutePageProps) {
 
   return (
     <section className="grid gap-4">
-      <div className="rounded-[22px] border border-slate-700/60 bg-slate-950/55 p-5">
+      <div className="rounded-[24px] border border-slate-700/60 bg-slate-950/60 p-5">
         <p className="section-kicker">Route Planner</p>
-        <h2 className="section-title mt-1">Procedure-Point Driven Planning</h2>
+        <h1 className="hero-title mt-2 text-[1.7rem] leading-none sm:text-[2rem]">Route Desk</h1>
         <p className="support-copy mt-3 text-sm">
+          Procedure-point driven planning for departure, airway, arrival, and approach selection.
+        </p>
+        <p className="support-copy mt-2 text-sm">
           Enter cruise altitude, departure airport, and arrival airport. The planner filters
           legal routes through SID and STAR anchor points first, then leaves runway and final
           procedure selection to the user.

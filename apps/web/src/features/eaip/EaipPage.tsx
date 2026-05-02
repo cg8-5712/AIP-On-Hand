@@ -240,111 +240,107 @@ export function EaipPage({
       : selectedScopeMeta.description;
   const currentPositionLabel =
     selectedChartIndex >= 0 ? `${selectedChartIndex + 1} / ${visibleCharts.length}` : `0 / ${visibleCharts.length}`;
+  const pageStatus = status?.ready ? "ready" : "offline";
 
   return (
-    <section className="grid gap-4">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="section-kicker">eAIP Desk</p>
-          <h2 className="section-title mt-2">Encrypted Chart Viewer</h2>
-          <p className="support-copy mt-2 max-w-[52rem] text-sm">
-            Scope-aware chart browsing is now available for airport, general, and enroute documents.
-            Search, category filtering, and sequential sheet navigation all stay inside the same secure viewer.
-          </p>
-        </div>
-        <div
-          className={
-            `rounded-full border px-3 py-2 text-[0.72rem] uppercase tracking-[0.12em] ` +
-            (status?.ready
-              ? "border-emerald-300/18 bg-emerald-400/8 text-emerald-100"
-              : "border-amber-300/18 bg-amber-400/8 text-amber-100")
-          }
-        >
-          {status?.ready ? "memory-only ready" : "package offline"}
-        </div>
-      </div>
-
+    <section className="grid h-full min-h-0 gap-4 xl:grid-cols-[360px_minmax(0,1fr)] xl:items-start">
       {statusError ? <InlineError message={statusError} /> : null}
       {catalogError ? <InlineError message={catalogError} /> : null}
       {status?.message && !status.ready ? <InlineError message={status.message} /> : null}
 
-      <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)] xl:items-start">
-        <div className="grid gap-4">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-            <MiniDataTile label="Package" value={status?.packageFile ?? "not configured"} />
-            <MiniDataTile label="AIRAC" value={typeof status?.cycle === "number" ? String(status.cycle) : "n/a"} />
-            <MiniDataTile label="Source" value={status?.source ?? "n/a"} />
-            <MiniDataTile label="Selected Airport" value={airportLabel} />
-            <MiniDataTile label="Visible Sheets" value={String(visibleCharts.length)} />
+      <div className="scroll-panel grid min-h-0 gap-4 overflow-y-auto pr-2 xl:h-full xl:content-start">
+        <div className="flex items-start justify-between gap-4 rounded-[24px] border border-slate-700/60 bg-slate-950/60 p-5">
+          <div>
+            <p className="section-kicker">eAIP Desk</p>
+            <h1 className="hero-title mt-2 text-[1.7rem] leading-none sm:text-[2rem]">Chart Viewer</h1>
+            <p className="support-copy mt-3 max-w-[30rem] text-sm">{scopeDescription}</p>
           </div>
-
-          <div className="rounded-[22px] border border-slate-700/60 bg-slate-950/55 p-4">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <p className="section-kicker">Scope Browser</p>
-                <p className="m-0 mt-2 text-sm text-slate-300">{scopeDescription}</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <FilterChip
-                  label="Airport"
-                  isActive={activeScope === "airport"}
-                  onClick={() => setActiveScope("airport")}
-                />
-                <FilterChip
-                  label="General"
-                  isActive={activeScope === "general"}
-                  onClick={() => setActiveScope("general")}
-                />
-                <FilterChip
-                  label="ENR"
-                  isActive={activeScope === "enroute"}
-                  onClick={() => setActiveScope("enroute")}
-                />
-              </div>
-            </div>
-
-            <div className="mt-4 grid gap-4">
-              <label className="block text-[0.8rem] text-slate-400" htmlFor="eaip-chart-search">
-                Search within current scope
-                <input
-                  id="eaip-chart-search"
-                  type="search"
-                  value={chartSearch}
-                  onChange={(event) => setChartSearch(event.target.value)}
-                  placeholder="Chart title, file name, category"
-                  className="input-shell"
-                />
-              </label>
-
-              <div className="flex flex-wrap gap-2">
-                <FilterChip
-                  label="All"
-                  isActive={selectedCategory === "all"}
-                  onClick={() => setSelectedCategory("all")}
-                />
-                {availableCategories.map((category) => (
-                  <FilterChip
-                    key={category}
-                    label={category}
-                    isActive={selectedCategory === category}
-                    onClick={() => setSelectedCategory(category)}
-                  />
-                ))}
-              </div>
-            </div>
+          <div
+            className={
+              `rounded-full border px-3 py-2 text-[0.72rem] uppercase tracking-[0.12em] ` +
+              (status?.ready
+                ? "border-emerald-300/18 bg-emerald-400/8 text-emerald-100"
+                : "border-amber-300/18 bg-amber-400/8 text-amber-100")
+            }
+          >
+            {pageStatus}
           </div>
-
-          <EaipChartList
-            title={`${selectedScopeMeta.label} Chart Stack`}
-            description={scopeDescription}
-            groups={chartGroups}
-            selectedChartId={selectedChartId}
-            isLoading={isStatusLoading || isCatalogLoading}
-            error={activeScope === "airport" && !selectedAirportCode ? null : null}
-            onChartSelect={setSelectedChartId}
-          />
         </div>
 
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+          <MiniDataTile label="AIRAC" value={typeof status?.cycle === "number" ? String(status.cycle) : "n/a"} />
+          <MiniDataTile label="Scope" value={selectedScopeMeta.label} />
+          <MiniDataTile label="Selected Airport" value={airportLabel} />
+        </div>
+
+        <div className="rounded-[22px] border border-slate-700/60 bg-slate-950/55 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="section-kicker">Scope Browser</p>
+              <p className="m-0 mt-2 text-sm text-slate-300">{scopeDescription}</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <FilterChip
+                label="Airport"
+                isActive={activeScope === "airport"}
+                onClick={() => setActiveScope("airport")}
+              />
+              <FilterChip
+                label="General"
+                isActive={activeScope === "general"}
+                onClick={() => setActiveScope("general")}
+              />
+              <FilterChip
+                label="ENR"
+                isActive={activeScope === "enroute"}
+                onClick={() => setActiveScope("enroute")}
+              />
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-4">
+            <label className="block text-[0.8rem] text-slate-400" htmlFor="eaip-chart-search">
+              Search within current scope
+              <input
+                id="eaip-chart-search"
+                type="search"
+                value={chartSearch}
+                onChange={(event) => setChartSearch(event.target.value)}
+                placeholder="Chart title, file name, category"
+                className="input-shell"
+              />
+            </label>
+
+            <div className="flex flex-wrap gap-2">
+              <FilterChip
+                label="All"
+                isActive={selectedCategory === "all"}
+                onClick={() => setSelectedCategory("all")}
+              />
+              {availableCategories.map((category) => (
+                <FilterChip
+                  key={category}
+                  label={category}
+                  isActive={selectedCategory === category}
+                  onClick={() => setSelectedCategory(category)}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <EaipChartList
+          title={`${selectedScopeMeta.label} Chart Stack`}
+          description={scopeDescription}
+          groups={chartGroups}
+          selectedChartId={selectedChartId}
+          isLoading={isStatusLoading || isCatalogLoading}
+          error={activeScope === "airport" && !selectedAirportCode ? null : null}
+          onChartSelect={setSelectedChartId}
+        />
+      </div>
+
+      <div className="min-h-0 xl:h-full">
         <EaipPreviewPanel
           contentUrl={contentUrl}
           currentPositionLabel={currentPositionLabel}
@@ -365,9 +361,7 @@ export function EaipPage({
           isPreviewLoading={isPreviewLoading}
           previewError={previewError}
           airportLabel={airportLabel}
-          packageFile={status?.packageFile ?? null}
           scopeLabel={selectedScopeMeta.label}
-          sourceLabel={status?.source ?? "n/a"}
         />
       </div>
     </section>
