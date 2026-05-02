@@ -299,6 +299,7 @@ dependencies = [
  "aip-domain",
  "aip-navigation",
  "aip-weather",
+ "chrono",
  "futures-util",
  "rfd",
  "serde",

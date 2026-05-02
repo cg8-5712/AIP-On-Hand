@@ -154,6 +154,7 @@ impl WeatherService {
             metar,
             taf,
             communications: Vec::new(),
+            generated_atis: None,
             noaa: NoaaWeatherSupplement {
                 current_raw: noaa_current_raw,
                 current_decoded: noaa_current_decoded,

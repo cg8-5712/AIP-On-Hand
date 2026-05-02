@@ -11,6 +11,7 @@ aip-charts = { path = "../charts" }
 aip-domain = { path = "../domain" }
 aip-navigation = { path = "../navigation" }
 aip-weather = { path = "../weather" }
+chrono.workspace = true
 futures-util.workspace = true
 rfd = "0.15"
 serde.workspace = true

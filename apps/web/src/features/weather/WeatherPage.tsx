@@ -7,6 +7,7 @@ import {
   WeatherDetailRow,
   WeatherTextPanel,
 } from "../shared/PanelPrimitives";
+import { GeneratedAtisSection } from "./GeneratedAtisSection";
 import {
   formatCloudLayers,
   formatHpa,
@@ -119,6 +120,10 @@ export function WeatherPage({
                     className="mt-4"
                   />
                 </div>
+              ) : null}
+
+              {airportOverview.generatedAtis ? (
+                <GeneratedAtisSection generatedAtis={airportOverview.generatedAtis} />
               ) : null}
 
               {airportOverview.noaa.currentDecoded ? (

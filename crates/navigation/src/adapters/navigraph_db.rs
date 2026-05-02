@@ -1,9 +1,10 @@
 use aip_domain::{
-    AirportCommunication, AirportFeature, AirportProceduresResponse, AirwayFeature, LatLon,
-    LayerTruncation, MapLayersResponse, NavDbMetadata, NavaidFeature, ProcedureAirport,
-    ProcedureGeometryResponse, ProcedureKind, ProcedureLegPoint, ProcedureSummary,
-    RouteAirwaySegment, RoutePlanCandidate, RoutePlanResponse, RouteProcedureOption,
-    RouteProcedurePoint, SearchEntityType, SearchResponse, SearchResultItem, WaypointFeature,
+    AirportCommunication, AirportFeature, AirportProceduresResponse, AirportRunwayEnd,
+    AirwayFeature, LatLon, LayerTruncation, MapLayersResponse, NavDbMetadata, NavaidFeature,
+    ProcedureAirport, ProcedureGeometryResponse, ProcedureKind, ProcedureLegPoint,
+    ProcedureSummary, RouteAirwaySegment, RoutePlanCandidate, RoutePlanResponse,
+    RouteProcedureOption, RouteProcedurePoint, SearchEntityType, SearchResponse, SearchResultItem,
+    WaypointFeature,
 };
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Result};
 use std::{
@@ -202,10 +203,7 @@ impl NavDb {
         })
     }
 
-    pub fn airport_communications(
-        &self,
-        airport_ident: &str,
-    ) -> Result<Vec<AirportCommunication>> {
+    pub fn airport_communications(&self, airport_ident: &str) -> Result<Vec<AirportCommunication>> {
         let normalized_ident = airport_ident.trim();
         if normalized_ident.is_empty() {
             return Ok(Vec::new());
@@ -213,6 +211,16 @@ impl NavDb {
 
         let connection = self.connect()?;
         query_airport_communications(&connection, normalized_ident)
+    }
+
+    pub fn airport_runway_ends(&self, airport_ident: &str) -> Result<Vec<AirportRunwayEnd>> {
+        let normalized_ident = airport_ident.trim();
+        if normalized_ident.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let connection = self.connect()?;
+        query_airport_runway_ends(&connection, normalized_ident)
     }
 
     pub fn plan_routes(
@@ -691,7 +699,11 @@ fn query_airport_communications(
 
     let rows = statement.query_map(params![airport_ident], |row| {
         let service_type = row.get::<_, Option<String>>(0)?.unwrap_or_default();
-        Ok((service_type, row.get::<_, Option<String>>(1)?, row.get::<_, i64>(2)?))
+        Ok((
+            service_type,
+            row.get::<_, Option<String>>(1)?,
+            row.get::<_, i64>(2)?,
+        ))
     })?;
 
     let mut communications = Vec::new();
@@ -726,6 +738,106 @@ fn query_airport_communications(
     }
 
     Ok(communications)
+}
+
+fn query_airport_runway_ends(
+    connection: &Connection,
+    airport_ident: &str,
+) -> Result<Vec<AirportRunwayEnd>> {
+    let mut statement = connection.prepare(
+        "
+        select
+          end_name,
+          reciprocal_name,
+          heading_deg,
+          length_ft,
+          width_ft,
+          surface,
+          is_takeoff,
+          is_landing,
+          ils_ident,
+          lonx,
+          laty
+        from (
+          select
+            primary_end.name as end_name,
+            secondary_end.name as reciprocal_name,
+            primary_end.heading as heading_deg,
+            r.length as length_ft,
+            r.width as width_ft,
+            nullif(trim(r.surface), '') as surface,
+            primary_end.is_takeoff as is_takeoff,
+            primary_end.is_landing as is_landing,
+            nullif(trim(primary_end.ils_ident), '') as ils_ident,
+            primary_end.lonx as lonx,
+            primary_end.laty as laty
+          from runway r
+          join airport ap on ap.airport_id = r.airport_id
+          join runway_end primary_end on primary_end.runway_end_id = r.primary_end_id
+          join runway_end secondary_end on secondary_end.runway_end_id = r.secondary_end_id
+          where ap.ident = ?1 or coalesce(ap.icao, '') = ?1
+
+          union all
+
+          select
+            secondary_end.name as end_name,
+            primary_end.name as reciprocal_name,
+            secondary_end.heading as heading_deg,
+            r.length as length_ft,
+            r.width as width_ft,
+            nullif(trim(r.surface), '') as surface,
+            secondary_end.is_takeoff as is_takeoff,
+            secondary_end.is_landing as is_landing,
+            nullif(trim(secondary_end.ils_ident), '') as ils_ident,
+            secondary_end.lonx as lonx,
+            secondary_end.laty as laty
+          from runway r
+          join airport ap on ap.airport_id = r.airport_id
+          join runway_end primary_end on primary_end.runway_end_id = r.primary_end_id
+          join runway_end secondary_end on secondary_end.runway_end_id = r.secondary_end_id
+          where ap.ident = ?1 or coalesce(ap.icao, '') = ?1
+        )
+        order by length_ft desc, end_name asc
+        ",
+    )?;
+
+    let rows = statement.query_map(params![airport_ident], |row| {
+        Ok(AirportRunwayEnd {
+            runway_name: row.get(0)?,
+            reciprocal_runway_name: row.get(1)?,
+            heading_deg: row.get(2)?,
+            length_ft: row.get(3)?,
+            width_ft: row.get(4)?,
+            surface: row.get(5)?,
+            is_takeoff: row.get::<_, i64>(6)? != 0,
+            is_landing: row.get::<_, i64>(7)? != 0,
+            ils_ident: row.get(8)?,
+            location: LatLon {
+                lon: row.get(9)?,
+                lat: row.get(10)?,
+            },
+        })
+    })?;
+
+    let mut runway_ends = Vec::new();
+    let mut seen = HashSet::new();
+    for row in rows {
+        let runway_end = row?;
+        let dedupe_key = format!(
+            "{}:{}:{:.4}:{:.6}:{:.6}",
+            runway_end.runway_name,
+            runway_end.reciprocal_runway_name,
+            runway_end.heading_deg,
+            runway_end.location.lat,
+            runway_end.location.lon
+        );
+        if !seen.insert(dedupe_key) {
+            continue;
+        }
+        runway_ends.push(runway_end);
+    }
+
+    Ok(runway_ends)
 }
 
 fn query_procedure_rows_for_airport(

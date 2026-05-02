@@ -324,6 +324,22 @@ export type AirportCommunication = {
   frequencyMhz: number;
 };
 
+export type GeneratedAtisType = "departure" | "arrival";
+
+export type GeneratedAtisReport = {
+  atisType: GeneratedAtisType;
+  informationCode: string;
+  issuedAt?: string | null;
+  runwaysInUse: string[];
+  contacts: AirportCommunication[];
+  text: string;
+};
+
+export type GeneratedAtisBundle = {
+  departure: GeneratedAtisReport;
+  arrival: GeneratedAtisReport;
+};
+
 export type AirportWeatherOverviewResponse = {
   requestedId: string;
   resolvedId: string;
@@ -332,6 +348,7 @@ export type AirportWeatherOverviewResponse = {
   metar?: MetarObservation | null;
   taf?: TafReport | null;
   communications: AirportCommunication[];
+  generatedAtis?: GeneratedAtisBundle | null;
   noaa: NoaaWeatherSupplement;
   warnings: string[];
 };

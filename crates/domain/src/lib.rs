@@ -381,6 +381,46 @@ pub struct AirportCommunication {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AirportRunwayEnd {
+    pub runway_name: String,
+    pub reciprocal_runway_name: String,
+    pub heading_deg: f64,
+    pub length_ft: f64,
+    pub width_ft: f64,
+    pub surface: Option<String>,
+    pub is_takeoff: bool,
+    pub is_landing: bool,
+    pub ils_ident: Option<String>,
+    pub location: LatLon,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum GeneratedAtisType {
+    Departure,
+    Arrival,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeneratedAtisReport {
+    pub atis_type: GeneratedAtisType,
+    pub information_code: String,
+    pub issued_at: Option<String>,
+    pub runways_in_use: Vec<String>,
+    pub contacts: Vec<AirportCommunication>,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeneratedAtisBundle {
+    pub departure: GeneratedAtisReport,
+    pub arrival: GeneratedAtisReport,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AirportWeatherOverviewResponse {
     pub requested_id: String,
     pub resolved_id: String,
@@ -389,6 +429,7 @@ pub struct AirportWeatherOverviewResponse {
     pub metar: Option<MetarObservation>,
     pub taf: Option<TafReport>,
     pub communications: Vec<AirportCommunication>,
+    pub generated_atis: Option<GeneratedAtisBundle>,
     pub noaa: NoaaWeatherSupplement,
     pub warnings: Vec<String>,
 }
