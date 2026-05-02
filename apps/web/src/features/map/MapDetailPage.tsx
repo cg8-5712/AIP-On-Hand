@@ -1,6 +1,5 @@
 import type {
   AirportFeature,
-  AirportWeatherOverviewResponse,
   MapLayersResponse,
   ProcedureGeometryResponse,
   ProcedureSummary,
@@ -20,10 +19,6 @@ type MapDetailPageProps = {
   selectedAirportIdent: string | null;
   onAirportSelect: (airport: AirportFeature) => void;
   selectedAirport: AirportFeature | null;
-  selectedWeatherStationId: string | null;
-  airportOverview: AirportWeatherOverviewResponse | null;
-  weatherError: string | null;
-  isWeatherLoading: boolean;
   totalProcedureCount: number;
   visibleProcedureCount: number;
   filteredProcedures: ProcedureSummary[];
@@ -44,10 +39,6 @@ export function MapDetailPage({
   selectedAirportIdent,
   onAirportSelect,
   selectedAirport,
-  selectedWeatherStationId,
-  airportOverview,
-  weatherError,
-  isWeatherLoading,
   totalProcedureCount,
   visibleProcedureCount,
   filteredProcedures,
@@ -69,11 +60,6 @@ export function MapDetailPage({
         visibleAirports={visibleAirports}
         selectedAirportIdent={selectedAirportIdent}
         onAirportSelect={onAirportSelect}
-        selectedAirport={selectedAirport}
-        selectedWeatherStationId={selectedWeatherStationId}
-        airportOverview={airportOverview}
-        weatherError={weatherError}
-        isWeatherLoading={isWeatherLoading}
       />
 
       <section className={`${panelClass} flex min-h-0 flex-col xl:overflow-hidden`}>

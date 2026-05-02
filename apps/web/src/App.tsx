@@ -315,16 +315,6 @@ export default function App() {
   }, [viewport, visibility]);
 
   useEffect(() => {
-    if (!layers || layers.airports.length === 0) {
-      return;
-    }
-
-    if (!selectedAirportIdent) {
-      setSelectedAirportIdent(layers.airports[0].ident);
-    }
-  }, [layers, selectedAirportIdent]);
-
-  useEffect(() => {
     if (!selectedAirportIdent) {
       setAirportProcedures(null);
       setSelectedProcedureId(null);
@@ -756,10 +746,6 @@ export default function App() {
                   selectedAirportIdent={selectedAirportIdent}
                   onAirportSelect={handleViewportAirportSelect}
                   selectedAirport={selectedAirport}
-                  selectedWeatherStationId={selectedWeatherStationId}
-                  airportOverview={airportOverview}
-                  weatherError={weatherError}
-                  isWeatherLoading={isWeatherLoading}
                   totalProcedureCount={totalProcedureCount}
                   visibleProcedureCount={visibleProcedureCount}
                   filteredProcedures={filteredProcedures}
@@ -828,6 +814,11 @@ export default function App() {
               focusRequest={focusRequest}
               basemapTone={basemapTone}
               visibility={visibility}
+              selectedAirport={selectedAirport}
+              selectedWeatherStationId={selectedWeatherStationId}
+              airportOverview={airportOverview}
+              weatherError={weatherError}
+              isWeatherLoading={isWeatherLoading}
               onViewportChange={setViewport}
               onAirportSelect={setSelectedAirportIdent}
               onBasemapToneChange={setBasemapTone}

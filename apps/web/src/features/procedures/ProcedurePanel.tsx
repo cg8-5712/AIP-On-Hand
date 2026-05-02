@@ -77,17 +77,6 @@ export function ProcedurePanel({
 
       <hr className="panel-divider" />
 
-      <div>
-        <p className="section-kicker">Interpretation</p>
-        <h3 className="section-title">Current Notes</h3>
-      </div>
-      <p className="support-copy mt-3 text-sm">
-        Procedure classification now prefers explicit database suffix values where present:
-        <span className="font-mono text-slate-100"> D</span> for SID and
-        <span className="font-mono text-slate-100"> A</span> for STAR, with geometry-based
-        fallback only when the source does not expose that distinction directly.
-      </p>
-
       {selectedProcedureSummary ? (
         <div className="mt-4 rounded-[18px] border border-slate-700/60 bg-slate-950/55 p-4">
           <div className="flex items-start justify-between gap-3">

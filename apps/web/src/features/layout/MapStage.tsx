@@ -1,4 +1,5 @@
 import { MapView } from "../map/MapView";
+import { MapAirportInfoCard } from "../map/MapAirportInfoCard";
 import { FilterChip, LegendItem, MapBadge } from "../shared/PanelPrimitives";
 import type {
   BasemapTone,
@@ -7,7 +8,12 @@ import type {
   RouteMapOverlay,
   ViewportState,
 } from "../app/types";
-import type { MapLayersResponse, ProcedureGeometryResponse } from "../../types/api";
+import type {
+  AirportFeature,
+  AirportWeatherOverviewResponse,
+  MapLayersResponse,
+  ProcedureGeometryResponse,
+} from "../../types/api";
 
 type MapStageProps = {
   layers: MapLayersResponse | null;
@@ -17,6 +23,11 @@ type MapStageProps = {
   focusRequest: MapFocusRequest | null;
   basemapTone: BasemapTone;
   visibility: LayerVisibility;
+  selectedAirport: AirportFeature | null;
+  selectedWeatherStationId: string | null;
+  airportOverview: AirportWeatherOverviewResponse | null;
+  weatherError: string | null;
+  isWeatherLoading: boolean;
   onViewportChange: (viewport: ViewportState) => void;
   onAirportSelect: (airportIdent: string) => void;
   onBasemapToneChange: (tone: BasemapTone) => void;
@@ -31,6 +42,11 @@ export function MapStage({
   focusRequest,
   basemapTone,
   visibility,
+  selectedAirport,
+  selectedWeatherStationId,
+  airportOverview,
+  weatherError,
+  isWeatherLoading,
   onViewportChange,
   onAirportSelect,
   onBasemapToneChange,
@@ -41,6 +57,13 @@ export function MapStage({
   const selectedRouteLabel = routeOverlay
     ? `${routeOverlay.selection.candidate.departure.ident} -> ${routeOverlay.selection.candidate.arrival.ident}`
     : "idle";
+  const hasAirportSelection = Boolean(
+    selectedAirportIdent ||
+      selectedAirport ||
+      airportOverview?.airport ||
+      airportOverview?.station ||
+      airportOverview?.metar,
+  );
 
   return (
     <main className="min-h-0 xl:overflow-hidden">
@@ -98,6 +121,25 @@ export function MapStage({
             </div>
           </div>
         </div>
+
+        {hasAirportSelection ? (
+          <div className="pointer-events-none absolute right-4 top-[7.5rem] z-[520] w-[min(32rem,calc(100vw-2rem))] md:right-5 lg:top-[7rem]">
+            <div className="flex justify-end">
+              <div className="pointer-events-auto w-full">
+                <MapAirportInfoCard
+                  selectedAirport={selectedAirport}
+                  selectedAirportIdent={selectedAirportIdent}
+                  airportOverview={airportOverview}
+                  selectedWeatherStationId={selectedWeatherStationId}
+                  isWeatherLoading={isWeatherLoading}
+                  weatherError={weatherError}
+                  variant="compact"
+                  className="mt-0 border-cyan-300/30 bg-slate-950/96 ring-1 ring-cyan-400/10 shadow-[0_30px_85px_rgba(0,0,0,0.52)] backdrop-blur-2xl"
+                />
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[500] p-4 md:p-5">
           <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">

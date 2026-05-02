@@ -17,6 +17,7 @@ type MapAirportInfoCardProps = {
   isWeatherLoading: boolean;
   weatherError: string | null;
   variant?: "full" | "compact";
+  className?: string;
 };
 
 function formatCoordinates(latitude?: number | null, longitude?: number | null) {
@@ -47,6 +48,7 @@ export function MapAirportInfoCard({
   isWeatherLoading,
   weatherError,
   variant = "full",
+  className,
 }: MapAirportInfoCardProps) {
   const airportRecord = airportOverview?.airport ?? null;
   const stationRecord = airportOverview?.station ?? null;
@@ -80,7 +82,7 @@ export function MapAirportInfoCard({
 
   if (!hasSelectionContext) {
     return (
-      <div className="overlay-card mt-4">
+      <div className={`overlay-card mt-4 ${className ?? ""}`.trim()}>
         <p className="muted-copy text-sm">
           Click an airport on the map or in the viewport list to inspect airport information, METAR,
           coordinates, runway data, and station details.
@@ -91,16 +93,19 @@ export function MapAirportInfoCard({
 
   if (variant === "compact") {
     return (
-      <div className="mt-4 rounded-[22px] border border-cyan-400/14 bg-cyan-950/16 p-4">
+      <div
+        className={`mt-4 rounded-[24px] border p-4 ${className ?? ""}`.trim()}
+      >
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="m-0 font-mono text-[1rem] text-amber-300">
+            <p className="section-kicker">Airport Inspector</p>
+            <p className="m-0 mt-1 font-mono text-[1.05rem] text-amber-300">
               {displayIdent ?? "n/a"}
               {displayIcao && displayIcao !== displayIdent ? ` | ${displayIcao}` : ""}
             </p>
-            <p className="m-0 mt-1 text-[1rem] font-medium text-slate-50">{displayName}</p>
+            <p className="m-0 mt-1 text-[1.1rem] font-semibold text-slate-50">{displayName}</p>
           </div>
-          <div className="rounded-full border border-cyan-300/16 bg-slate-950/80 px-3 py-1 text-[0.72rem] uppercase tracking-[0.12em] text-cyan-100">
+          <div className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-[0.72rem] uppercase tracking-[0.12em] text-cyan-100">
             {metar?.flightCategory ?? "info"}
           </div>
         </div>
@@ -143,7 +148,9 @@ export function MapAirportInfoCard({
   }
 
   return (
-    <div className="mt-4 rounded-[22px] border border-cyan-400/14 bg-cyan-950/16 p-4">
+    <div
+      className={`mt-4 rounded-[22px] border border-cyan-400/14 bg-cyan-950/16 p-4 ${className ?? ""}`.trim()}
+    >
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="m-0 font-mono text-[1rem] text-amber-300">
