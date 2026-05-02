@@ -92,8 +92,21 @@ const mapLayersResponse: MapLayersResponse = {
       name: null,
       waypointType: "WAYPOINT",
       arincType: "WN",
+      airportId: null,
+      isAirportWaypoint: false,
       airportIdent: null,
       location: { lon: 116.5667, lat: 40.7778 },
+    },
+    {
+      id: 2,
+      ident: "AA314",
+      name: null,
+      waypointType: "WAYPOINT",
+      arincType: "WN",
+      airportId: 16999,
+      isAirportWaypoint: true,
+      airportIdent: "ZBAA",
+      location: { lon: 116.5983, lat: 40.0733 },
     },
   ],
   vors: [],
@@ -237,27 +250,22 @@ describe("App", () => {
     vi.spyOn(api, "searchNavdata").mockResolvedValue(searchResponse);
   });
 
-  it("loads live layer metadata and selects the first visible airport", async () => {
+  it("loads live layer metadata without auto-selecting an airport", async () => {
     const view = render(<App />);
 
     await view.findByText("AIP On Hand");
     await view.findByText("2512");
 
     expect(view.getByTestId("map-airport-count")).toHaveTextContent("2");
-    await vi.waitFor(() => {
-      expect(view.getByTestId("map-selected-airport")).toHaveTextContent("ZBAA");
-    });
-    expect(view.getByText("IDKE2G")).toBeInTheDocument();
+    expect(view.getByTestId("map-selected-airport")).toHaveTextContent("none");
   });
 
   it("does not auto-select a procedure when the visible airport list refreshes", async () => {
     const view = render(<App />);
 
     await view.findByText("AIP On Hand");
-    await vi.waitFor(() => {
-      expect(view.getByTestId("map-selected-airport")).toHaveTextContent("ZBAA");
-    });
 
+    expect(view.getByTestId("map-selected-airport")).toHaveTextContent("none");
     expect(view.getByTestId("map-selected-procedure")).toHaveTextContent("none");
     expect(api.getProcedureGeometry).not.toHaveBeenCalled();
   });
@@ -349,14 +357,15 @@ describe("App", () => {
     const view = render(<App />);
     await view.findByText("Airways");
 
-    await user.click(view.getByRole("button", { name: "Waypoints" }));
+    await user.click(view.getByRole("button", { name: "Enroute WPT" }));
 
     await vi.waitFor(() => {
       expect(api.getMapLayers).toHaveBeenCalled();
     });
 
     const lastCall = vi.mocked(api.getMapLayers).mock.calls.at(-1);
-    expect(lastCall?.[1].waypoints).toBe(true);
+    expect(lastCall?.[1].waypointsEnroute).toBe(true);
+    expect(lastCall?.[1].waypointsTerminal).toBe(false);
   });
 
   it("filters procedure list by selected procedure type", async () => {

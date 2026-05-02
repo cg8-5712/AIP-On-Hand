@@ -8,7 +8,8 @@ import type {
 
 export type LayerVisibility = {
   airports: boolean;
-  waypoints: boolean;
+  waypointsEnroute: boolean;
+  waypointsTerminal: boolean;
   vors: boolean;
   ndbs: boolean;
   airways: boolean;
@@ -59,7 +60,8 @@ export type RouteMapOverlay = {
 
 export const initialVisibility: LayerVisibility = {
   airports: true,
-  waypoints: false,
+  waypointsEnroute: false,
+  waypointsTerminal: false,
   vors: true,
   ndbs: false,
   airways: true,

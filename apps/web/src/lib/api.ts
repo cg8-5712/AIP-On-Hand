@@ -41,7 +41,8 @@ type JsonRequestOptions = RequestOptions & {
 type LayerRequestOptions = RequestOptions & {
   zoom: number;
   airports: boolean;
-  waypoints: boolean;
+  waypointsEnroute: boolean;
+  waypointsTerminal: boolean;
   vors: boolean;
   ndbs: boolean;
   airways: boolean;
@@ -217,6 +218,8 @@ export function getEaipChartContentUrl(chartId: string) {
 }
 
 export function getMapLayers(bounds: Bounds, options: LayerRequestOptions) {
+  const includeWaypoints = options.waypointsEnroute || options.waypointsTerminal;
+
   const query = new URLSearchParams({
     west: bounds.west.toString(),
     south: bounds.south.toString(),
@@ -224,7 +227,7 @@ export function getMapLayers(bounds: Bounds, options: LayerRequestOptions) {
     north: bounds.north.toString(),
     zoom: options.zoom.toString(),
     airports: String(options.airports),
-    waypoints: String(options.waypoints),
+    waypoints: String(includeWaypoints),
     vors: String(options.vors),
     ndbs: String(options.ndbs),
     airways: String(options.airways),

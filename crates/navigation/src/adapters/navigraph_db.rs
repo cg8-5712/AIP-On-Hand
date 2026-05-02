@@ -422,6 +422,7 @@ fn query_waypoints(
           nullif(trim(name), ''),
           nullif(trim(type), ''),
           nullif(trim(arinc_type), ''),
+          airport_id,
           nullif(trim(airport_ident), ''),
           lonx,
           laty
@@ -437,16 +438,20 @@ fn query_waypoints(
     let rows = statement.query_map(
         params![query.west, query.east, query.south, query.north, limit],
         |row| {
+            let airport_id = row.get::<_, Option<i64>>(5)?;
+
             Ok(WaypointFeature {
                 id: row.get(0)?,
                 ident: row.get(1)?,
                 name: row.get(2)?,
                 waypoint_type: row.get(3)?,
                 arinc_type: row.get(4)?,
-                airport_ident: row.get(5)?,
+                airport_id,
+                is_airport_waypoint: airport_id.is_some(),
+                airport_ident: row.get(6)?,
                 location: LatLon {
-                    lon: row.get(6)?,
-                    lat: row.get(7)?,
+                    lon: row.get(7)?,
+                    lat: row.get(8)?,
                 },
             })
         },

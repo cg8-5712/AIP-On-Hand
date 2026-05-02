@@ -37,6 +37,8 @@ pub struct WaypointFeature {
     pub name: Option<String>,
     pub waypoint_type: Option<String>,
     pub arinc_type: Option<String>,
+    pub airport_id: Option<i64>,
+    pub is_airport_waypoint: bool,
     pub airport_ident: Option<String>,
     pub location: LatLon,
 }

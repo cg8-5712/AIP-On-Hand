@@ -37,6 +37,8 @@ export type WaypointFeature = {
   name?: string | null;
   waypointType?: string | null;
   arincType?: string | null;
+  airportId?: number | null;
+  isAirportWaypoint: boolean;
   airportIdent?: string | null;
   location: LatLon;
 };

@@ -4,7 +4,8 @@ import { LayerRow, MiniDataTile } from "../shared/PanelPrimitives";
 
 const layerConfig = [
   { key: "airports", label: "Airports", colorClass: "bg-amber-300" },
-  { key: "waypoints", label: "Waypoints", colorClass: "bg-sky-300" },
+  { key: "waypointsEnroute", label: "Enroute WPT", colorClass: "bg-sky-300" },
+  { key: "waypointsTerminal", label: "Airport WPT", colorClass: "bg-sky-400" },
   { key: "vors", label: "VOR", colorClass: "bg-emerald-300" },
   { key: "ndbs", label: "NDB", colorClass: "bg-pink-300" },
   { key: "airways", label: "Airways", colorClass: "bg-cyan-300" },
@@ -150,7 +151,8 @@ function renderTruncationNotice(layers: MapLayersResponse | null) {
 function layerHelperText(key: keyof LayerVisibility) {
   const copy: Record<keyof LayerVisibility, string> = {
     airports: "Clickable airport markers and viewport browser entries",
-    waypoints: "Named fixes and route anchors at higher zoom",
+    waypointsEnroute: "Public fixes and airway anchors without airport association",
+    waypointsTerminal: "Airport-associated fixes identified by airport_id",
     vors: "VHF navigation beacons",
     ndbs: "Low frequency beacons",
     airways: "Segment lines from the live navdata source",
@@ -166,7 +168,8 @@ function layerCountForKey(layers: MapLayersResponse | null, key: keyof LayerVisi
 
   const counts: Record<keyof LayerVisibility, string> = {
     airports: String(layers.airports.length),
-    waypoints: String(layers.waypoints.length),
+    waypointsEnroute: String(layers.waypoints.filter((waypoint) => !waypoint.isAirportWaypoint).length),
+    waypointsTerminal: String(layers.waypoints.filter((waypoint) => waypoint.isAirportWaypoint).length),
     vors: String(layers.vors.length),
     ndbs: String(layers.ndbs.length),
     airways: String(layers.airways.length),

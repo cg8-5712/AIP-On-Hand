@@ -6,7 +6,8 @@ import type { BasemapTone, MapFocusRequest, RouteMapOverlay } from "../app/types
 
 type LayerVisibility = {
   airports: boolean;
-  waypoints: boolean;
+  waypointsEnroute: boolean;
+  waypointsTerminal: boolean;
   vors: boolean;
   ndbs: boolean;
   airways: boolean;
@@ -52,7 +53,7 @@ const basemapConfig: Record<BasemapTone, { url: string; attribution: string; sub
 const airportSymbolSvg = `
   <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
     <g fill="none" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="12" cy="12" r="7.4" fill="#effdf5" stroke="#4ade80" stroke-width="2.1" />
+      <circle cx="12" cy="12" r="6.4" stroke="#4ade80" stroke-width="2.1" />
       <path d="M12 1.1v3.1M12 19.8v3.1M1.1 12h3.1M19.8 12h3.1" stroke="#4ade80" stroke-width="2.1" />
     </g>
   </svg>
@@ -310,13 +311,23 @@ export function MapView({
       }
     }
 
-    if (visibility.waypoints) {
+    if (visibility.waypointsEnroute || visibility.waypointsTerminal) {
       for (const waypoint of layers.waypoints) {
+        if (waypoint.isAirportWaypoint && !visibility.waypointsTerminal) {
+          continue;
+        }
+
+        if (!waypoint.isAirportWaypoint && !visibility.waypointsEnroute) {
+          continue;
+        }
+
         L.marker([waypoint.location.lat, waypoint.location.lon], {
           icon: createSymbolIcon("waypoint", waypointSymbolSvg),
           keyboard: false,
         })
-          .bindTooltip(`${waypoint.ident}${waypoint.name ? ` | ${waypoint.name}` : ""}`)
+          .bindTooltip(
+            `${waypoint.ident}${waypoint.name ? ` | ${waypoint.name}` : ""}${waypoint.airportIdent ? ` | ${waypoint.airportIdent}` : ""}`,
+          )
           .addTo(waypointLayer);
       }
     }
