@@ -130,7 +130,8 @@ export default function App() {
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const focusRequestIdRef = useRef(0);
   const showMapStage = activePage !== "eaip";
-  const showDetailHeader = activePage !== "eaip" && activePage !== "route";
+  const showDetailHeader =
+    activePage !== "eaip" && activePage !== "route" && activePage !== "weather";
   const useInternalPageScroll = activePage === "eaip";
   const shellGridClass =
     activePage === "eaip"

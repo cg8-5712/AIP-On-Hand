@@ -41,13 +41,15 @@ export function WeatherPage({
 }: WeatherPageProps) {
   return (
     <section className="grid gap-4">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-4 rounded-[24px] border border-slate-700/60 bg-slate-950/60 p-5">
         <div>
-          <p className="section-kicker">Weather Page</p>
-          <h2 className="section-title">METAR, TAF, And NOAA Text</h2>
-          <p className="support-copy mt-2 max-w-[48rem] text-sm">
-            This page is isolated from the map workflow. It follows the current selected airport but
-            owns weather-centric presentation, source fallbacks, and NOAA cycle inspection.
+          <p className="section-kicker">Weather Desk</p>
+          <h1 className="hero-title mt-2 text-[1.7rem] leading-none sm:text-[2rem]">
+            METAR, TAF, And NOAA Text
+          </h1>
+          <p className="support-copy mt-3 max-w-[48rem] text-sm">
+            Follow the currently selected airport with weather-focused presentation, source fallbacks,
+            and NOAA cycle inspection.
           </p>
         </div>
         <button
