@@ -49,6 +49,46 @@ const basemapConfig: Record<BasemapTone, { url: string; attribution: string; sub
   },
 };
 
+const airportSymbolSvg = `
+  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="7.4" fill="#effdf5" stroke="#4ade80" stroke-width="2.1" />
+      <path d="M12 1.1v3.1M12 19.8v3.1M1.1 12h3.1M19.8 12h3.1" stroke="#4ade80" stroke-width="2.1" />
+    </g>
+  </svg>
+`;
+
+const waypointSymbolSvg = `
+  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <g fill="#49628f" stroke="#dbeafe" stroke-width="0.6" stroke-linejoin="round">
+      <path d="M12 6.4 18.7 17.6H5.3Z" />
+    </g>
+  </svg>
+`;
+
+const vorSymbolSvg = `
+  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <g fill="none" stroke="#3f5a8a" stroke-linecap="square" stroke-linejoin="miter">
+      <rect x="3.2" y="6.1" width="17.6" height="11.8" stroke-width="1.45" />
+      <path d="M8.2 8.2 5.9 12l2.3 3.8" stroke-width="1.85" />
+      <path d="M15.8 8.2 18.1 12l-2.3 3.8" stroke-width="1.85" />
+    </g>
+    <circle cx="12" cy="12" r="1.05" fill="#3f5a8a" />
+  </svg>
+`;
+
+const ndbSymbolSvg = `
+  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <g fill="none" stroke="#58b947" stroke-linecap="round">
+      <circle cx="12" cy="12" r="8.6" stroke-width="1.85" stroke-dasharray="0.01 3.1" />
+      <circle cx="12" cy="12" r="6.3" stroke-width="1.65" stroke-dasharray="0.01 2.85" />
+      <circle cx="12" cy="12" r="4.1" stroke-width="1.45" stroke-dasharray="0.01 2.5" />
+      <circle cx="12" cy="12" r="1.9" stroke-width="1.25" stroke-dasharray="0.01 2.2" />
+    </g>
+    <circle cx="12" cy="12" r="1.35" fill="#58b947" />
+  </svg>
+`;
+
 function createBasemapLayer(tone: BasemapTone) {
   const config = basemapConfig[tone];
   const options: L.TileLayerOptions = {
@@ -61,6 +101,36 @@ function createBasemapLayer(tone: BasemapTone) {
   }
 
   return L.tileLayer(config.url, options);
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function createSymbolIcon(
+  variant: "airport" | "waypoint" | "vor" | "ndb",
+  svg: string,
+  label?: string,
+) {
+  const safeLabel = label ? escapeHtml(label) : null;
+
+  return L.divIcon({
+    className: `navmap-div-icon navmap-div-icon-${variant}${safeLabel ? " navmap-div-icon-with-label" : ""}`,
+    html: `
+      <div class="navmap-symbol navmap-symbol-${variant}">
+        <span class="navmap-symbol-glyph">${svg}</span>
+        ${safeLabel ? `<span class="navmap-symbol-label">${safeLabel}</span>` : ""}
+      </div>
+    `,
+    iconSize: safeLabel ? [92, 24] : [24, 24],
+    iconAnchor: [12, 12],
+    tooltipAnchor: [0, -14],
+  });
 }
 
 export function MapView({
@@ -242,12 +312,9 @@ export function MapView({
 
     if (visibility.waypoints) {
       for (const waypoint of layers.waypoints) {
-        L.circleMarker([waypoint.location.lat, waypoint.location.lon], {
-          radius: 2.7,
-          weight: 1,
-          color: "#93c5fd",
-          fillColor: "#dbeafe",
-          fillOpacity: 0.86,
+        L.marker([waypoint.location.lat, waypoint.location.lon], {
+          icon: createSymbolIcon("waypoint", waypointSymbolSvg),
+          keyboard: false,
         })
           .bindTooltip(`${waypoint.ident}${waypoint.name ? ` | ${waypoint.name}` : ""}`)
           .addTo(waypointLayer);
@@ -256,12 +323,9 @@ export function MapView({
 
     if (visibility.vors) {
       for (const vor of layers.vors) {
-        L.circleMarker([vor.location.lat, vor.location.lon], {
-          radius: 4.8,
-          weight: 2,
-          color: "#86efac",
-          fillColor: "#14532d",
-          fillOpacity: 0.92,
+        L.marker([vor.location.lat, vor.location.lon], {
+          icon: createSymbolIcon("vor", vorSymbolSvg),
+          keyboard: false,
         })
           .bindTooltip(`${vor.ident}${vor.facilityType ? ` | ${vor.facilityType}` : ""}`)
           .addTo(vorLayer);
@@ -270,12 +334,9 @@ export function MapView({
 
     if (visibility.ndbs) {
       for (const ndb of layers.ndbs) {
-        L.circleMarker([ndb.location.lat, ndb.location.lon], {
-          radius: 4.2,
-          weight: 2,
-          color: "#f9a8d4",
-          fillColor: "#831843",
-          fillOpacity: 0.92,
+        L.marker([ndb.location.lat, ndb.location.lon], {
+          icon: createSymbolIcon("ndb", ndbSymbolSvg),
+          keyboard: false,
         })
           .bindTooltip(`${ndb.ident}${ndb.facilityType ? ` | ${ndb.facilityType}` : ""}`)
           .addTo(ndbLayer);
@@ -283,13 +344,16 @@ export function MapView({
     }
 
     if (visibility.airports) {
+      const showAirportLabels = layers.airports.length < 200;
+
       for (const airport of layers.airports) {
-        const marker = L.circleMarker([airport.location.lat, airport.location.lon], {
-          radius: 5.8,
-          weight: 2,
-          color: "#fbbf24",
-          fillColor: "#0f172a",
-          fillOpacity: 0.95,
+        const marker = L.marker([airport.location.lat, airport.location.lon], {
+          icon: createSymbolIcon(
+            "airport",
+            airportSymbolSvg,
+            showAirportLabels ? (airport.icao?.trim() || airport.ident.trim()) : undefined,
+          ),
+          keyboard: false,
         })
           .bindTooltip(`${airport.ident}${airport.icao ? ` | ${airport.icao}` : ""} | ${airport.name}`)
           .on("click", () => onAirportSelect(airport.ident))
@@ -297,16 +361,16 @@ export function MapView({
 
         if (airport.ident === selectedAirportIdent) {
           L.circleMarker([airport.location.lat, airport.location.lon], {
-            radius: 10,
+            radius: 12,
             weight: 3,
             color: "#22d3ee",
             fillColor: "#0f172a",
-            fillOpacity: 0.22,
+            fillOpacity: 0.14,
           })
             .bindTooltip(`${airport.ident} | selected`)
             .addTo(selectedAirportLayer);
 
-          marker.bringToFront();
+          marker.setZIndexOffset(1200);
         }
       }
     }

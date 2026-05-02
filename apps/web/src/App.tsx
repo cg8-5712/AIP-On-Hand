@@ -675,6 +675,12 @@ export default function App() {
     }
   }
 
+  function handleMapAirportInspectorClose() {
+    setSelectedAirportIdent(null);
+    setSelectedProcedureId(null);
+    setSelectedProcedureGeometry(null);
+  }
+
   function toggleLayer(key: keyof typeof visibility) {
     setVisibility((current) => ({
       ...current,
@@ -821,6 +827,7 @@ export default function App() {
               isWeatherLoading={isWeatherLoading}
               onViewportChange={setViewport}
               onAirportSelect={setSelectedAirportIdent}
+              onAirportInspectorClose={handleMapAirportInspectorClose}
               onBasemapToneChange={setBasemapTone}
               onFocusRequestHandled={(requestId) => {
                 setFocusRequest((current) => (current?.requestId === requestId ? null : current));

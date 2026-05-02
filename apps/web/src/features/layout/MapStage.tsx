@@ -30,6 +30,7 @@ type MapStageProps = {
   isWeatherLoading: boolean;
   onViewportChange: (viewport: ViewportState) => void;
   onAirportSelect: (airportIdent: string) => void;
+  onAirportInspectorClose: () => void;
   onBasemapToneChange: (tone: BasemapTone) => void;
   onFocusRequestHandled: (requestId: number) => void;
 };
@@ -49,6 +50,7 @@ export function MapStage({
   isWeatherLoading,
   onViewportChange,
   onAirportSelect,
+  onAirportInspectorClose,
   onBasemapToneChange,
   onFocusRequestHandled,
 }: MapStageProps) {
@@ -134,6 +136,7 @@ export function MapStage({
                   isWeatherLoading={isWeatherLoading}
                   weatherError={weatherError}
                   variant="compact"
+                  onClose={onAirportInspectorClose}
                   className="mt-0 border-cyan-300/30 bg-slate-950/96 ring-1 ring-cyan-400/10 shadow-[0_30px_85px_rgba(0,0,0,0.52)] backdrop-blur-2xl"
                 />
               </div>

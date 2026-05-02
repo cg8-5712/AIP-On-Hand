@@ -18,6 +18,7 @@ type MapAirportInfoCardProps = {
   weatherError: string | null;
   variant?: "full" | "compact";
   className?: string;
+  onClose?: () => void;
 };
 
 function formatCoordinates(latitude?: number | null, longitude?: number | null) {
@@ -49,6 +50,7 @@ export function MapAirportInfoCard({
   weatherError,
   variant = "full",
   className,
+  onClose,
 }: MapAirportInfoCardProps) {
   const airportRecord = airportOverview?.airport ?? null;
   const stationRecord = airportOverview?.station ?? null;
@@ -105,8 +107,20 @@ export function MapAirportInfoCard({
             </p>
             <p className="m-0 mt-1 text-[1.1rem] font-semibold text-slate-50">{displayName}</p>
           </div>
-          <div className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-[0.72rem] uppercase tracking-[0.12em] text-cyan-100">
-            {metar?.flightCategory ?? "info"}
+          <div className="flex items-center gap-2">
+            <div className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-[0.72rem] uppercase tracking-[0.12em] text-cyan-100">
+              {metar?.flightCategory ?? "info"}
+            </div>
+            {onClose ? (
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-slate-600/80 bg-slate-950/88 text-lg leading-none text-slate-200 transition duration-200 hover:border-cyan-300/36 hover:text-white motion-reduce:transition-none"
+                aria-label="Close airport inspector"
+              >
+                ×
+              </button>
+            ) : null}
           </div>
         </div>
 
