@@ -1,4 +1,10 @@
-import type { AirportFeature, MapLayersResponse, ProcedureGeometryResponse, ProcedureSummary } from "../../types/api";
+import type {
+  AirportFeature,
+  AirportWeatherOverviewResponse,
+  MapLayersResponse,
+  ProcedureGeometryResponse,
+  ProcedureSummary,
+} from "../../types/api";
 import type { LayerVisibility, ProcedureFilter } from "../app/types";
 import { panelClass } from "../app/types";
 import { LeftSidebar } from "../layout/LeftSidebar";
@@ -14,6 +20,10 @@ type MapDetailPageProps = {
   selectedAirportIdent: string | null;
   onAirportSelect: (airport: AirportFeature) => void;
   selectedAirport: AirportFeature | null;
+  selectedWeatherStationId: string | null;
+  airportOverview: AirportWeatherOverviewResponse | null;
+  weatherError: string | null;
+  isWeatherLoading: boolean;
   totalProcedureCount: number;
   visibleProcedureCount: number;
   filteredProcedures: ProcedureSummary[];
@@ -34,6 +44,10 @@ export function MapDetailPage({
   selectedAirportIdent,
   onAirportSelect,
   selectedAirport,
+  selectedWeatherStationId,
+  airportOverview,
+  weatherError,
+  isWeatherLoading,
   totalProcedureCount,
   visibleProcedureCount,
   filteredProcedures,
@@ -55,12 +69,17 @@ export function MapDetailPage({
         visibleAirports={visibleAirports}
         selectedAirportIdent={selectedAirportIdent}
         onAirportSelect={onAirportSelect}
+        selectedAirport={selectedAirport}
+        selectedWeatherStationId={selectedWeatherStationId}
+        airportOverview={airportOverview}
+        weatherError={weatherError}
+        isWeatherLoading={isWeatherLoading}
       />
 
       <section className={`${panelClass} flex min-h-0 flex-col xl:overflow-hidden`}>
         <div className="px-5 pt-5">
-          <p className="section-kicker">Selection Desk</p>
-          <h2 className="section-title">Airport And Procedures</h2>
+          <p className="section-kicker">Procedure Desk</p>
+          <h2 className="section-title">Selected Airport Procedures</h2>
         </div>
 
         <div className="scroll-panel min-h-0 flex-1 overflow-y-auto px-5 pb-5">

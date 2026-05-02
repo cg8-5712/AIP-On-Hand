@@ -1,7 +1,7 @@
 import type { ProcedureFilter } from "../app/types";
 import type { AirportFeature, ProcedureGeometryResponse, ProcedureSummary } from "../../types/api";
 import { procedureFilterOptions } from "../app/types";
-import { FilterChip, MiniDataTile, ProcedureButton, ProcedureKindChip } from "../shared/PanelPrimitives";
+import { FilterChip, ProcedureButton, ProcedureKindChip } from "../shared/PanelPrimitives";
 
 type ProcedurePanelProps = {
   selectedAirport: AirportFeature | null;
@@ -28,27 +28,7 @@ export function ProcedurePanel({
 }: ProcedurePanelProps) {
   return (
     <>
-      {selectedAirport ? (
-        <div className="mt-4 rounded-[22px] border border-cyan-400/14 bg-cyan-950/16 p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="m-0 font-mono text-[1rem] text-amber-300">
-                {selectedAirport.ident}
-                {selectedAirport.icao ? ` | ${selectedAirport.icao}` : ""}
-              </p>
-              <p className="m-0 mt-1 text-[1.05rem] font-medium text-slate-50">{selectedAirport.name}</p>
-            </div>
-            <div className="rounded-full border border-cyan-300/16 bg-slate-950/80 px-3 py-1 text-[0.72rem] uppercase tracking-[0.12em] text-cyan-100">
-              active
-            </div>
-          </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
-            <MiniDataTile label="Lat" value={selectedAirport.location.lat.toFixed(4)} />
-            <MiniDataTile label="Lon" value={selectedAirport.location.lon.toFixed(4)} />
-            <MiniDataTile label="Procedures" value={String(totalProcedureCount)} />
-          </div>
-        </div>
-      ) : (
+      {selectedAirport ? null : (
         <div className="overlay-card mt-4">
           <p className="muted-copy text-sm">
             Move the map, search globally, or click a visible airport to inspect procedures.

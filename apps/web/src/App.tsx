@@ -480,6 +480,31 @@ export default function App() {
       return byVisibleList;
     }
 
+    const overviewLatitude = airportOverview?.airport?.latitude ?? airportOverview?.station?.latitude;
+    const overviewLongitude = airportOverview?.airport?.longitude ?? airportOverview?.station?.longitude;
+    if (
+      selectedAirportIdent &&
+      typeof overviewLatitude === "number" &&
+      typeof overviewLongitude === "number"
+    ) {
+      return {
+        id: airportProcedures?.airport.id ?? -1,
+        ident: selectedAirportIdent,
+        icao: airportOverview?.airport?.icaoId ?? airportOverview?.station?.icaoId ?? null,
+        name:
+          airportOverview?.airport?.name ??
+          airportOverview?.station?.site ??
+          selectedAirportIdent,
+        country: airportOverview?.airport?.country ?? airportOverview?.station?.country ?? null,
+        numApproaches: airportProcedures?.procedures.length ?? 0,
+        longestRunwayLength: 0,
+        location: {
+          lat: overviewLatitude,
+          lon: overviewLongitude,
+        },
+      } satisfies AirportFeature;
+    }
+
     if (!airportProcedures) {
       return null;
     }
@@ -495,7 +520,9 @@ export default function App() {
       longestRunwayLength: 0,
       location: airport.location,
     } satisfies AirportFeature;
-  }, [airportProcedures, layers, selectedAirportIdent]);
+
+    return null;
+  }, [airportOverview, airportProcedures, layers, selectedAirportIdent]);
 
   const selectedWeatherStationId = useMemo(() => {
     if (selectedAirport?.icao?.trim()) {
@@ -729,6 +756,10 @@ export default function App() {
                   selectedAirportIdent={selectedAirportIdent}
                   onAirportSelect={handleViewportAirportSelect}
                   selectedAirport={selectedAirport}
+                  selectedWeatherStationId={selectedWeatherStationId}
+                  airportOverview={airportOverview}
+                  weatherError={weatherError}
+                  isWeatherLoading={isWeatherLoading}
                   totalProcedureCount={totalProcedureCount}
                   visibleProcedureCount={visibleProcedureCount}
                   filteredProcedures={filteredProcedures}

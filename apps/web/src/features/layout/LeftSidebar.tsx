@@ -1,5 +1,10 @@
-import type { AirportFeature, MapLayersResponse } from "../../types/api";
+import type {
+  AirportFeature,
+  AirportWeatherOverviewResponse,
+  MapLayersResponse,
+} from "../../types/api";
 import type { LayerVisibility } from "../app/types";
+import { MapAirportInfoCard } from "../map/MapAirportInfoCard";
 import { LayerRow, MiniDataTile } from "../shared/PanelPrimitives";
 
 const layerConfig = [
@@ -20,6 +25,11 @@ type LeftSidebarProps = {
   visibleAirports: AirportFeature[];
   selectedAirportIdent: string | null;
   onAirportSelect: (airport: AirportFeature) => void;
+  selectedAirport: AirportFeature | null;
+  selectedWeatherStationId: string | null;
+  airportOverview: AirportWeatherOverviewResponse | null;
+  weatherError: string | null;
+  isWeatherLoading: boolean;
 };
 
 export function LeftSidebar({
@@ -32,9 +42,14 @@ export function LeftSidebar({
   visibleAirports,
   selectedAirportIdent,
   onAirportSelect,
+  selectedAirport,
+  selectedWeatherStationId,
+  airportOverview,
+  weatherError,
+  isWeatherLoading,
 }: LeftSidebarProps) {
   return (
-    <aside className={`${panelClass} flex flex-col`}>
+    <aside className={`${panelClass} flex min-h-0 flex-col`}>
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="section-kicker">Layer Control</p>
@@ -87,7 +102,17 @@ export function LeftSidebar({
         <MiniDataTile label="VOR / NDB" value={`${layers?.vors.length ?? 0} / ${layers?.ndbs.length ?? 0}`} />
       </div>
 
-      <ul className="mt-4 grid list-none gap-3 pr-1">
+      <MapAirportInfoCard
+        selectedAirport={selectedAirport}
+        selectedAirportIdent={selectedAirportIdent}
+        airportOverview={airportOverview}
+        selectedWeatherStationId={selectedWeatherStationId}
+        isWeatherLoading={isWeatherLoading}
+        weatherError={weatherError}
+        variant="compact"
+      />
+
+      <ul className="scroll-panel mt-4 grid min-h-0 flex-1 list-none gap-3 overflow-y-auto pr-1">
         {visibleAirports.slice(0, 40).map((airport) => (
           <li key={airport.id} className="m-0">
             <button
