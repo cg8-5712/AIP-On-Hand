@@ -27,6 +27,10 @@ const pageCopy: Record<AppPage, { title: string; description: string }> = {
     title: "Map Workbench",
     description: "Layer controls, viewport airport browser, procedure selection, and search stay docked beside the live map.",
   },
+  airport: {
+    title: "Airport Info",
+    description: "Identifiers, station metadata, runways, and the complete communication list for the selected airport.",
+  },
   eaip: {
     title: "eAIP Desk",
     description: "Encrypted chart package viewing, airport reference context, and future document navigation live in this workspace.",

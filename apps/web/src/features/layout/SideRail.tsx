@@ -15,6 +15,7 @@ type RailItem = {
 
 const primaryItems: RailItem[] = [
   { key: "map", label: "Map", subLabel: "surface", icon: MapIcon },
+  { key: "airport", label: "Airport", subLabel: "info", icon: AirportIcon },
   { key: "eaip", label: "eAIP", subLabel: "charts", icon: ChartIcon },
   { key: "weather", label: "Weather", subLabel: "metar", icon: WeatherIcon },
   { key: "route", label: "Route", subLabel: "plan", icon: RouteIcon },
@@ -111,6 +112,17 @@ function ChartIcon(props: SVGProps<SVGSVGElement>) {
       <rect x="4" y="5" width="16" height="14" rx="2.5" />
       <path d="M8 9h8M8 12.5h5M8 16h6" />
       <path d="m15.5 3 2 2" />
+    </svg>
+  );
+}
+
+function AirportIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...iconProps(props)}>
+      <path d="M12 4v16" />
+      <path d="M7 9.5 12 7l5 2.5" />
+      <path d="M6 15h12" />
+      <path d="M8.5 19h7" />
     </svg>
   );
 }

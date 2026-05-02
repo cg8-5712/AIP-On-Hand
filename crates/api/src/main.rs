@@ -510,11 +510,35 @@ async fn airport_overview(
     station_id: Path<String>,
     query: Query<AirportOverviewQuery>,
 ) -> Result<Json<aip_domain::AirportWeatherOverviewResponse>, ApiError> {
-    let payload = state
+    let requested_station_id = station_id.into_inner();
+    let mut payload = state
         .weather_service
-        .airport_overview(&station_id.into_inner(), query.history_hours.unwrap_or(0))
+        .airport_overview(&requested_station_id, query.history_hours.unwrap_or(0))
         .await
         .map_err(map_weather_error)?;
+    let mut communication_lookup_ids = Vec::new();
+    if let Some(airport_icao_id) = payload.airport.as_ref().and_then(|airport| airport.icao_id.clone()) {
+        communication_lookup_ids.push(airport_icao_id);
+    }
+    if let Some(station_icao_id) = payload.station.as_ref().and_then(|station| station.icao_id.clone()) {
+        communication_lookup_ids.push(station_icao_id);
+    }
+    communication_lookup_ids.push(payload.resolved_id.clone());
+    communication_lookup_ids.push(requested_station_id.clone());
+    communication_lookup_ids.dedup();
+
+    for lookup_id in communication_lookup_ids {
+        let communications = state.nav_db.airport_communications(&lookup_id).map_err(|error| {
+            ApiError::Internal(format!(
+                "failed to query airport communications for `{lookup_id}`: {error}"
+            ))
+        })?;
+
+        if !communications.is_empty() {
+            payload.communications = communications;
+            break;
+        }
+    }
 
     Ok(Json(payload))
 }

@@ -1,9 +1,9 @@
 use aip_domain::{
-    AirportFeature, AirportProceduresResponse, AirwayFeature, LatLon, LayerTruncation,
-    MapLayersResponse, NavDbMetadata, NavaidFeature, ProcedureAirport, ProcedureGeometryResponse,
-    ProcedureKind, ProcedureLegPoint, ProcedureSummary, RouteAirwaySegment, RoutePlanCandidate,
-    RoutePlanResponse, RouteProcedureOption, RouteProcedurePoint, SearchEntityType, SearchResponse,
-    SearchResultItem, WaypointFeature,
+    AirportCommunication, AirportFeature, AirportProceduresResponse, AirwayFeature, LatLon,
+    LayerTruncation, MapLayersResponse, NavDbMetadata, NavaidFeature, ProcedureAirport,
+    ProcedureGeometryResponse, ProcedureKind, ProcedureLegPoint, ProcedureSummary,
+    RouteAirwaySegment, RoutePlanCandidate, RoutePlanResponse, RouteProcedureOption,
+    RouteProcedurePoint, SearchEntityType, SearchResponse, SearchResultItem, WaypointFeature,
 };
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Result};
 use std::{
@@ -200,6 +200,19 @@ impl NavDb {
             query: query.to_string(),
             results,
         })
+    }
+
+    pub fn airport_communications(
+        &self,
+        airport_ident: &str,
+    ) -> Result<Vec<AirportCommunication>> {
+        let normalized_ident = airport_ident.trim();
+        if normalized_ident.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let connection = self.connect()?;
+        query_airport_communications(&connection, normalized_ident)
     }
 
     pub fn plan_routes(
@@ -642,6 +655,77 @@ fn query_airport(connection: &Connection, airport_ident: &str) -> Result<Option<
             },
         )
         .optional()
+}
+
+fn query_airport_communications(
+    connection: &Connection,
+    airport_ident: &str,
+) -> Result<Vec<AirportCommunication>> {
+    let mut statement = connection.prepare(
+        "
+        select
+          nullif(trim(c.type), ''),
+          nullif(trim(c.name), ''),
+          c.frequency
+        from com c
+        join airport ap on ap.airport_id = c.airport_id
+        where
+          ap.ident = ?1
+          or coalesce(ap.icao, '') = ?1
+        order by
+          case
+            when upper(coalesce(c.type, '')) = 'ATIS' then 0
+            when upper(coalesce(c.type, '')) = 'A' then 1
+            when upper(coalesce(c.type, '')) = 'D' then 2
+            when upper(coalesce(c.type, '')) = 'C' then 3
+            when upper(coalesce(c.type, '')) = 'T' then 4
+            when upper(coalesce(c.type, '')) = 'G' then 5
+            when upper(coalesce(c.type, '')) = 'RMP' then 6
+            when upper(coalesce(c.type, '')) = 'OPS' then 7
+            else 8
+          end,
+          c.frequency asc,
+          coalesce(c.name, '') asc
+        ",
+    )?;
+
+    let rows = statement.query_map(params![airport_ident], |row| {
+        let service_type = row.get::<_, Option<String>>(0)?.unwrap_or_default();
+        Ok((service_type, row.get::<_, Option<String>>(1)?, row.get::<_, i64>(2)?))
+    })?;
+
+    let mut communications = Vec::new();
+    let mut seen = HashSet::new();
+
+    for row in rows {
+        let (raw_service_type, name, raw_frequency) = row?;
+        let Some((service_type, label)) = map_airport_communication_type(&raw_service_type) else {
+            continue;
+        };
+
+        let Some(frequency_mhz) = normalize_frequency_mhz(raw_frequency) else {
+            continue;
+        };
+
+        let dedupe_key = format!(
+            "{}:{}:{}",
+            service_type,
+            format!("{frequency_mhz:.3}"),
+            name.as_deref().unwrap_or_default().trim().to_uppercase()
+        );
+        if !seen.insert(dedupe_key) {
+            continue;
+        }
+
+        communications.push(AirportCommunication {
+            service_type,
+            label,
+            name,
+            frequency_mhz,
+        });
+    }
+
+    Ok(communications)
 }
 
 fn query_procedure_rows_for_airport(
@@ -1679,6 +1763,40 @@ fn search_rank(item: &SearchResultItem, query: &str) -> (u8, u8, String) {
     };
 
     (ident_rank, type_rank, upper_ident)
+}
+
+fn map_airport_communication_type(raw_type: &str) -> Option<(String, String)> {
+    let normalized = raw_type.trim().to_uppercase();
+    if normalized.is_empty() {
+        return None;
+    }
+
+    let mapped = match normalized.as_str() {
+        "ATIS" => ("atis", "ATIS"),
+        "A" => ("app", "APP"),
+        "D" => ("dep", "DEP"),
+        "C" => ("clr", "CLR"),
+        "T" => ("twr", "TWR"),
+        "G" => ("gnd", "GND"),
+        "RMP" => ("rmp", "RMP"),
+        "OPS" => ("ops", "OPS"),
+        "DIR" => ("dir", "DIR"),
+        "CTA" => ("cta", "CTA"),
+        "TCA" => ("tca", "TCA"),
+        _ => {
+            return Some((normalized.to_lowercase(), normalized));
+        }
+    };
+
+    Some((mapped.0.to_string(), mapped.1.to_string()))
+}
+
+fn normalize_frequency_mhz(raw_frequency: i64) -> Option<f64> {
+    if raw_frequency <= 0 {
+        return None;
+    }
+
+    Some(raw_frequency as f64 / 1000.0)
 }
 
 fn distance_nm(a: LatLon, b: LatLon) -> f64 {

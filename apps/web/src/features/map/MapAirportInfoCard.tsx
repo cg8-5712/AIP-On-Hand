@@ -1,4 +1,8 @@
-import type { AirportFeature, AirportWeatherOverviewResponse } from "../../types/api";
+import type {
+  AirportCommunication,
+  AirportFeature,
+  AirportWeatherOverviewResponse,
+} from "../../types/api";
 import { MiniDataTile, WeatherDetailRow, WeatherTextPanel } from "../shared/PanelPrimitives";
 import {
   compactValues,
@@ -21,6 +25,23 @@ type MapAirportInfoCardProps = {
   onClose?: () => void;
 };
 
+type CommunicationGroup = {
+  serviceType: string;
+  label: string;
+  entries: AirportCommunication[];
+};
+
+const communicationPriority: Record<string, number> = {
+  atis: 0,
+  app: 1,
+  dep: 2,
+  clr: 3,
+  twr: 4,
+  gnd: 5,
+  rmp: 6,
+  ops: 7,
+};
+
 function formatCoordinates(latitude?: number | null, longitude?: number | null) {
   return compactValues([
     typeof latitude === "number" ? latitude.toFixed(4) : undefined,
@@ -28,7 +49,10 @@ function formatCoordinates(latitude?: number | null, longitude?: number | null) 
   ]);
 }
 
-function formatRunwaySummary(overview: AirportWeatherOverviewResponse | null, airport: AirportFeature | null) {
+function formatRunwaySummary(
+  overview: AirportWeatherOverviewResponse | null,
+  airport: AirportFeature | null,
+) {
   const explicitCount = overview?.airport?.runwayCount;
   if (typeof explicitCount === "number" && explicitCount > 0) {
     return String(explicitCount);
@@ -39,6 +63,115 @@ function formatRunwaySummary(overview: AirportWeatherOverviewResponse | null, ai
   }
 
   return "n/a";
+}
+
+function formatFrequencyMhz(frequencyMhz?: number | null) {
+  if (typeof frequencyMhz !== "number" || Number.isNaN(frequencyMhz)) {
+    return "n/a";
+  }
+
+  return frequencyMhz.toFixed(3);
+}
+
+function buildCommunicationGroups(communications: AirportCommunication[]): CommunicationGroup[] {
+  const grouped = new Map<string, CommunicationGroup>();
+
+  for (const entry of communications) {
+    const existing = grouped.get(entry.serviceType);
+    if (existing) {
+      existing.entries.push(entry);
+      continue;
+    }
+
+    grouped.set(entry.serviceType, {
+      serviceType: entry.serviceType,
+      label: entry.label,
+      entries: [entry],
+    });
+  }
+
+  return [...grouped.values()].sort((left, right) => {
+    const leftPriority = communicationPriority[left.serviceType] ?? 99;
+    const rightPriority = communicationPriority[right.serviceType] ?? 99;
+
+    return leftPriority - rightPriority || left.label.localeCompare(right.label);
+  });
+}
+
+function formatCommunicationEntryName(entry: AirportCommunication, index: number, total: number) {
+  const trimmedName = entry.name?.trim();
+  if (trimmedName) {
+    return trimmedName;
+  }
+
+  return total > 1 ? `${entry.label} ${index + 1}` : entry.label;
+}
+
+function formatCommunicationGroupSummary(group: CommunicationGroup) {
+  if (group.entries.length === 0) {
+    return "n/a";
+  }
+
+  if (group.entries.length === 1) {
+    const entry = group.entries[0];
+    return compactValues([
+      entry.name ?? undefined,
+      formatFrequencyMhz(entry.frequencyMhz),
+    ]);
+  }
+
+  return `${group.entries.length} freq`;
+}
+
+function renderCommunicationGroups(
+  groups: CommunicationGroup[],
+  {
+    title,
+    containerClassName,
+    gridClassName,
+  }: {
+    title: string;
+    containerClassName?: string;
+    gridClassName?: string;
+  },
+) {
+  if (groups.length === 0) {
+    return null;
+  }
+
+  return (
+    <div
+      className={`mt-4 rounded-[18px] border border-slate-700/60 bg-slate-950/55 p-4 ${containerClassName ?? ""}`.trim()}
+    >
+      <p className="section-kicker">{title}</p>
+      <div className={`mt-4 grid gap-4 ${gridClassName ?? ""}`.trim()}>
+        {groups.map((group) => (
+          <div
+            key={group.serviceType}
+            className="rounded-[16px] border border-slate-700/50 bg-slate-950/42 p-3"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <p className="m-0 text-[0.82rem] font-semibold uppercase tracking-[0.12em] text-cyan-100">
+                {group.label}
+              </p>
+              <span className="rounded-full bg-slate-900/85 px-2.5 py-1 text-[0.68rem] uppercase tracking-[0.12em] text-slate-400">
+                {group.entries.length}
+              </span>
+            </div>
+            <div className="mt-3 grid gap-2">
+              {group.entries.map((entry, index) => (
+                <WeatherDetailRow
+                  key={`${group.serviceType}-${entry.frequencyMhz}-${entry.name ?? "unnamed"}-${index}`}
+                  label={formatCommunicationEntryName(entry, index, group.entries.length)}
+                  value={formatFrequencyMhz(entry.frequencyMhz)}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function MapAirportInfoCard({
@@ -55,6 +188,8 @@ export function MapAirportInfoCard({
   const airportRecord = airportOverview?.airport ?? null;
   const stationRecord = airportOverview?.station ?? null;
   const metar = airportOverview?.metar ?? null;
+  const communications = airportOverview?.communications ?? [];
+  const communicationGroups = buildCommunicationGroups(communications);
   const stationTypes = stationRecord?.siteTypes?.length ? stationRecord.siteTypes.join(" / ") : "n/a";
   const displayIdent =
     selectedAirport?.ident ??
@@ -80,7 +215,9 @@ export function MapAirportInfoCard({
     airportRecord?.longitude ??
     stationRecord?.longitude ??
     selectedAirport?.location.lon;
-  const hasSelectionContext = Boolean(displayIdent || airportRecord || stationRecord || metar);
+  const hasSelectionContext = Boolean(
+    displayIdent || airportRecord || stationRecord || metar || communications.length > 0,
+  );
 
   if (!hasSelectionContext) {
     return (
@@ -95,9 +232,7 @@ export function MapAirportInfoCard({
 
   if (variant === "compact") {
     return (
-      <div
-        className={`mt-4 rounded-[24px] border p-4 ${className ?? ""}`.trim()}
-      >
+      <div className={`mt-4 rounded-[24px] border p-4 ${className ?? ""}`.trim()}>
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="section-kicker">Airport Inspector</p>
@@ -115,10 +250,10 @@ export function MapAirportInfoCard({
               <button
                 type="button"
                 onClick={onClose}
-                className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-slate-600/80 bg-slate-950/88 text-lg leading-none text-slate-200 transition duration-200 hover:border-cyan-300/36 hover:text-white motion-reduce:transition-none"
+                className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-slate-600/80 bg-slate-950/88 text-sm font-semibold leading-none text-slate-200 transition duration-200 hover:border-cyan-300/36 hover:text-white motion-reduce:transition-none"
                 aria-label="Close airport inspector"
               >
-                ×
+                X
               </button>
             ) : null}
           </div>
@@ -134,7 +269,14 @@ export function MapAirportInfoCard({
             label="Runways"
             value={formatRunwaySummary(airportOverview, selectedAirport)}
           />
-          <MiniDataTile label="ATIS" value="n/a" />
+          <MiniDataTile
+            label="ATIS"
+            value={communicationGroups.find((group) => group.serviceType === "atis")
+              ? formatCommunicationGroupSummary(
+                  communicationGroups.find((group) => group.serviceType === "atis")!,
+                )
+              : "n/a"}
+          />
         </div>
 
         {weatherError ? (
@@ -155,6 +297,16 @@ export function MapAirportInfoCard({
           <WeatherDetailRow label="Visibility" value={metar?.visibilitySm ?? "n/a"} />
           <WeatherDetailRow label="QNH" value={formatHpa(metar?.altimeterHpa)} />
           <WeatherDetailRow label="Observed" value={metar ? formatUnixUtc(metar.observedAtUnix) : "n/a"} />
+          {communicationGroups
+            .filter((group) => group.serviceType !== "atis")
+            .slice(0, 6)
+            .map((group) => (
+              <WeatherDetailRow
+                key={group.serviceType}
+                label={group.label}
+                value={formatCommunicationGroupSummary(group)}
+              />
+            ))}
           <WeatherDetailRow label="Station Types" value={stationTypes} />
         </div>
       </div>
@@ -191,6 +343,14 @@ export function MapAirportInfoCard({
           label="Runways"
           value={formatRunwaySummary(airportOverview, selectedAirport)}
         />
+        <MiniDataTile
+          label="ATIS"
+          value={communicationGroups.find((group) => group.serviceType === "atis")
+            ? formatCommunicationGroupSummary(
+                communicationGroups.find((group) => group.serviceType === "atis")!,
+              )
+            : "n/a"}
+        />
       </div>
 
       {weatherError ? (
@@ -219,10 +379,7 @@ export function MapAirportInfoCard({
             />
             <WeatherDetailRow
               label="Coordinates"
-              value={formatCoordinates(
-                displayLatitude,
-                displayLongitude,
-              )}
+              value={formatCoordinates(displayLatitude, displayLongitude)}
             />
             <WeatherDetailRow
               label="Elevation"
@@ -240,7 +397,6 @@ export function MapAirportInfoCard({
                   : "n/a"
               }
             />
-            <WeatherDetailRow label="ATIS" value="n/a" />
           </div>
         </div>
 
@@ -259,6 +415,11 @@ export function MapAirportInfoCard({
           </div>
         </div>
       </div>
+
+      {renderCommunicationGroups(communicationGroups, {
+        title: "Communications",
+        gridClassName: "xl:grid-cols-2",
+      })}
 
       {metar?.rawText ? (
         <WeatherTextPanel title="Raw METAR" body={metar.rawText} className="mt-4" />

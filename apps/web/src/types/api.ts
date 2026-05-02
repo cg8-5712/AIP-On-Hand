@@ -317,6 +317,13 @@ export type NoaaWeatherSupplement = {
   recentCycles: NoaaCycleMetar[];
 };
 
+export type AirportCommunication = {
+  serviceType: string;
+  label: string;
+  name?: string | null;
+  frequencyMhz: number;
+};
+
 export type AirportWeatherOverviewResponse = {
   requestedId: string;
   resolvedId: string;
@@ -324,6 +331,7 @@ export type AirportWeatherOverviewResponse = {
   station?: StationInfoSummary | null;
   metar?: MetarObservation | null;
   taf?: TafReport | null;
+  communications: AirportCommunication[];
   noaa: NoaaWeatherSupplement;
   warnings: string[];
 };

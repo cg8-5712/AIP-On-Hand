@@ -15,6 +15,7 @@ import {
 } from "./features/app/types";
 import { EaipPage } from "./features/eaip/EaipPage";
 import { FuelPage } from "./features/fuel/FuelPage";
+import { AirportInfoPage } from "./features/airport-info/AirportInfoPage";
 import { MapDetailPage } from "./features/map/MapDetailPage";
 import { WeatherPage } from "./features/weather/WeatherPage";
 import { formatUnixUtc } from "./features/weather/formatters";
@@ -774,6 +775,17 @@ export default function App() {
                   weatherFlightCategory={weatherFlightCategory}
                   weatherObservedAt={weatherObservedAt}
                   onToggleWeatherHistory={() => setWeatherHistoryHours((current) => (current === 24 ? 0 : 24))}
+                />
+              ) : null}
+
+              {activePage === "airport" ? (
+                <AirportInfoPage
+                  selectedAirport={selectedAirport}
+                  selectedWeatherStationId={selectedWeatherStationId}
+                  airportOverview={airportOverview}
+                  isLoading={isWeatherLoading}
+                  error={weatherError}
+                  stationTypes={stationTypes}
                 />
               ) : null}
 

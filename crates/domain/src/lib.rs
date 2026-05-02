@@ -372,6 +372,15 @@ pub struct NoaaWeatherSupplement {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AirportCommunication {
+    pub service_type: String,
+    pub label: String,
+    pub name: Option<String>,
+    pub frequency_mhz: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AirportWeatherOverviewResponse {
     pub requested_id: String,
     pub resolved_id: String,
@@ -379,6 +388,7 @@ pub struct AirportWeatherOverviewResponse {
     pub station: Option<StationInfoSummary>,
     pub metar: Option<MetarObservation>,
     pub taf: Option<TafReport>,
+    pub communications: Vec<AirportCommunication>,
     pub noaa: NoaaWeatherSupplement,
     pub warnings: Vec<String>,
 }
