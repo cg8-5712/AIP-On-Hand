@@ -30,9 +30,9 @@ import {
   getMapLayers,
   getProcedureGeometry,
   getVersion,
+  pickEaipPackage,
   searchNavdata,
   unloadEaip,
-  uploadEaip,
 } from "./lib/api";
 import type {
   AirportFeature,
@@ -129,8 +129,11 @@ export default function App() {
   const deferredAirportFilter = useDeferredValue(airportFilter);
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const focusRequestIdRef = useRef(0);
+  const showMapStage = activePage !== "eaip";
   const shellGridClass =
-    activePage === "route"
+    activePage === "eaip"
+      ? "grid gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-[110px_minmax(0,1fr)]"
+      : activePage === "route"
       ? "grid gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-[110px_minmax(560px,0.95fr)_minmax(0,1.45fr)]"
       : "grid gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-[110px_400px_minmax(0,1fr)]";
   const detailPanelClass =
@@ -665,10 +668,9 @@ export default function App() {
     setEaipStatusError(null);
   }
 
-  async function handleEaipUpload(packageFile: File, password: string) {
-    const status = await uploadEaip(packageFile, password);
-    setEaipStatus(status);
-    setEaipStatusError(null);
+  async function handleEaipPickPackage() {
+    const response = await pickEaipPackage();
+    return response.packagePath ?? null;
   }
 
   async function handleEaipUnload() {
@@ -767,29 +769,31 @@ export default function App() {
                   eaipStatus={eaipStatus}
                   eaipStatusError={eaipStatusError}
                   isEaipStatusLoading={isEaipStatusLoading}
+                  onEaipPickPackage={handleEaipPickPackage}
                   onEaipConfigure={handleEaipConfigure}
-                  onEaipUpload={handleEaipUpload}
                   onEaipUnload={handleEaipUnload}
                 />
               ) : null}
             </div>
           </section>
 
-          <MapStage
-            layers={layers}
-            selectedAirportIdent={selectedAirportIdent}
-            selectedProcedure={selectedProcedureGeometry}
-            routeOverlay={routeMapOverlay}
-            focusRequest={focusRequest}
-            basemapTone={basemapTone}
-            visibility={visibility}
-            onViewportChange={setViewport}
-            onAirportSelect={setSelectedAirportIdent}
-            onBasemapToneChange={setBasemapTone}
-            onFocusRequestHandled={(requestId) => {
-              setFocusRequest((current) => (current?.requestId === requestId ? null : current));
-            }}
-          />
+          {showMapStage ? (
+            <MapStage
+              layers={layers}
+              selectedAirportIdent={selectedAirportIdent}
+              selectedProcedure={selectedProcedureGeometry}
+              routeOverlay={routeMapOverlay}
+              focusRequest={focusRequest}
+              basemapTone={basemapTone}
+              visibility={visibility}
+              onViewportChange={setViewport}
+              onAirportSelect={setSelectedAirportIdent}
+              onBasemapToneChange={setBasemapTone}
+              onFocusRequestHandled={(requestId) => {
+                setFocusRequest((current) => (current?.requestId === requestId ? null : current));
+              }}
+            />
+          ) : null}
         </div>
       </div>
     </div>

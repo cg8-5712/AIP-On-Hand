@@ -130,6 +130,12 @@ struct ConfigureEaipRequest {
     password: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PickEaipPackageResponse {
+    package_path: Option<String>,
+}
+
 const DEFAULT_EAIP_UPLOAD_LIMIT_BYTES: usize = 512 * 1024 * 1024;
 
 #[get("/api/v1/health")]
@@ -291,6 +297,25 @@ async fn configure_eaip(
     let mut status = status;
     status.max_upload_bytes = eaip_upload_limit_bytes();
     Ok(Json(status))
+}
+
+#[post("/api/v1/eaip/pick-package")]
+async fn pick_eaip_package() -> Result<Json<PickEaipPackageResponse>, ApiError> {
+    let package_path = web::block(|| {
+        rfd::FileDialog::new()
+            .set_title("Select eAIP package")
+            .add_filter("eAIP package", &["aipkg", "aip"])
+            .pick_file()
+            .map(|path| path.display().to_string())
+    })
+    .await
+    .map_err(|error| {
+        ApiError::Internal(format!(
+            "failed to open local eAIP package picker in background task: {error}"
+        ))
+    })?;
+
+    Ok(Json(PickEaipPackageResponse { package_path }))
 }
 
 #[post("/api/v1/eaip/upload")]
@@ -639,6 +664,7 @@ async fn main() -> io::Result<()> {
             .service(version)
             .service(eaip_status)
             .service(eaip_catalog)
+            .service(pick_eaip_package)
             .service(configure_eaip)
             .service(upload_eaip)
             .service(unload_eaip)

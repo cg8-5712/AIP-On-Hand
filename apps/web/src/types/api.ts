@@ -350,6 +350,10 @@ export type EaipCatalogResponse = {
   enrouteDocuments: EaipChartSummary[];
 };
 
+export type EaipPackagePickResponse = {
+  packagePath?: string | null;
+};
+
 export type EaipStatusResponse = {
   configured: boolean;
   ready: boolean;

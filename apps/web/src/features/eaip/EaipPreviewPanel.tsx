@@ -68,7 +68,7 @@ export function EaipPreviewPanel({
 
       {previewError ? <InlineError message={previewError} className="mt-4" /> : null}
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px]">
+      <div className="mt-4 grid gap-4">
         <div className="overflow-hidden rounded-[26px] border border-slate-300/12 bg-slate-900/80">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/90 bg-slate-950/78 px-4 py-3">
             <div className="flex flex-wrap items-center gap-2">

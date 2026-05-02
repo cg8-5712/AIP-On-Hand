@@ -4,6 +4,7 @@ import type {
   Bounds,
   EaipAirportChartsResponse,
   EaipCatalogResponse,
+  EaipPackagePickResponse,
   EaipStatusResponse,
   HealthResponse,
   MapLayersResponse,
@@ -147,6 +148,17 @@ export function configureEaip(packagePath: string, password: string, options?: J
       packagePath,
       password,
     },
+    {
+      ...options,
+      cache: "no-store",
+    },
+  );
+}
+
+export function pickEaipPackage(options?: JsonRequestOptions) {
+  return sendJson<EaipPackagePickResponse, Record<string, never>>(
+    "/api/v1/eaip/pick-package",
+    {},
     {
       ...options,
       cache: "no-store",
