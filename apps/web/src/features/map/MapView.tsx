@@ -93,6 +93,12 @@ const ndbSymbolSvg = `
 
 const routeOverlayLineColor = "#3f5a8a";
 const routeOverlayPointColor = "#e0f2fe";
+const asiaDefaultCenter: L.LatLngTuple = [35.8617, 104.1954];
+const asiaDefaultZoom = 5;
+const worldBounds = L.latLngBounds(
+  [-85, -180] as L.LatLngTuple,
+  [85, 180] as L.LatLngTuple,
+);
 const airwayLineColors = {
   J: "#3f5a8a",
   V: "#67e8f9",
@@ -121,11 +127,22 @@ type AirwayLabelSegment = {
   to: LatLon;
 };
 
+function singleWorldMinZoom(viewportWidthPx: number, centerLon: number) {
+  const safeViewportWidthPx = Math.max(1, viewportWidthPx);
+  const visibleLongitudeMargin = Math.max(1, Math.min(centerLon + 180, 180 - centerLon));
+  const requiredScale = (safeViewportWidthPx * 180) / (256 * visibleLongitudeMargin);
+  const rawZoom = Math.log2(Math.max(1, requiredScale));
+
+  return Math.max(3, Math.ceil(rawZoom * 4) / 4);
+}
+
 function createBasemapLayer(tone: BasemapTone) {
   const config = basemapConfig[tone];
   const options: L.TileLayerOptions = {
     maxZoom: 20,
     className: "navmap-tile",
+    noWrap: true,
+    bounds: worldBounds,
   };
 
   if (config.subdomains) {
@@ -460,10 +477,16 @@ export function MapView({
 
     delete (containerRef.current as HTMLDivElement & { _leaflet_id?: number })._leaflet_id;
 
+    const minimumZoom = singleWorldMinZoom(containerRef.current.clientWidth, asiaDefaultCenter[1]);
     const map = L.map(containerRef.current, {
       zoomControl: false,
       attributionControl: false,
-    }).setView([35.8617, 104.1954], 5);
+      worldCopyJump: false,
+      maxBounds: worldBounds,
+      maxBoundsViscosity: 1,
+      minZoom: minimumZoom,
+      zoomSnap: 0.25,
+    }).setView(asiaDefaultCenter, Math.max(asiaDefaultZoom, minimumZoom));
 
     L.control
       .zoom({
@@ -513,6 +536,21 @@ export function MapView({
       typeof ResizeObserver === "undefined"
         ? null
         : new ResizeObserver(() => {
+            const nextMinimumZoom = singleWorldMinZoom(
+              containerRef.current?.clientWidth ?? 0,
+              asiaDefaultCenter[1],
+            );
+
+            if (map.getMinZoom() !== nextMinimumZoom) {
+              map.setMinZoom(nextMinimumZoom);
+            }
+
+            if (map.getZoom() < nextMinimumZoom) {
+              map.setZoom(nextMinimumZoom, {
+                animate: false,
+              });
+            }
+
             map.invalidateSize({
               animate: false,
             });

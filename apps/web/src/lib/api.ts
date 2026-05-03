@@ -1,7 +1,6 @@
 import type {
   AirportWeatherOverviewResponse,
   AirportProceduresResponse,
-  AirwayFeature,
   Bounds,
   EaipAirportChartsResponse,
   EaipCatalogResponse,
@@ -257,13 +256,6 @@ export function searchNavdata(query: string, options?: RequestOptions) {
   });
 
   return requestJson<SearchResponse>(`/api/v1/search?${params.toString()}`, options);
-}
-
-export function getAirwaySegments(airwayName: string, options?: RequestOptions) {
-  return requestJson<AirwayFeature[]>(
-    `/api/v1/airways/${encodeURIComponent(airwayName)}/segments`,
-    options,
-  );
 }
 
 type RoutePlanOptions = RequestOptions & {
