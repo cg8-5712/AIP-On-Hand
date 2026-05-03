@@ -506,6 +506,19 @@ async fn search(
     Ok(Json(payload))
 }
 
+#[get("/api/v1/airways/{airway_name}/segments")]
+async fn airway_segments(
+    state: Data<AppState>,
+    airway_name: Path<String>,
+) -> Result<Json<Vec<aip_domain::AirwayFeature>>, ApiError> {
+    let payload = state
+        .nav_db
+        .airway_segments(&airway_name)
+        .map_err(|error| ApiError::Internal(format!("failed to query airway segments: {error}")))?;
+
+    Ok(Json(payload))
+}
+
 #[get("/api/v1/airports/{station_id}/overview")]
 async fn airport_overview(
     state: Data<AppState>,
@@ -733,6 +746,7 @@ async fn main() -> io::Result<()> {
             .service(procedure_geometry)
             .service(route_plan)
             .service(search)
+            .service(airway_segments)
     })
     .bind(bind_address)?
     .run()

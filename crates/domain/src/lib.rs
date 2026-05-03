@@ -179,6 +179,7 @@ pub struct SearchResultItem {
     pub location: Option<LatLon>,
     pub from: Option<LatLon>,
     pub to: Option<LatLon>,
+    pub path: Option<Vec<LatLon>>,
 }
 
 #[derive(Debug, Clone, Serialize)]

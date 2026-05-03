@@ -123,6 +123,7 @@ export default function App() {
   const [searchResults, setSearchResults] = useState<SearchResultItem[]>([]);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
+  const [selectedAirwayPath, setSelectedAirwayPath] = useState<LatLon[]>([]);
   const [focusRequest, setFocusRequest] = useState<MapFocusRequest | null>(null);
   const [basemapTone, setBasemapTone] = useState<BasemapTone>(getInitialBasemapTone);
   const [selectedRoutePreview, setSelectedRoutePreview] = useState<RoutePreviewSelection | null>(null);
@@ -614,6 +615,7 @@ export default function App() {
   }
 
   function handleViewportAirportSelect(airport: AirportFeature) {
+    setSelectedAirwayPath([]);
     setSelectedAirportIdent(airport.ident);
     queueMapFocus({
       kind: "location",
@@ -623,6 +625,7 @@ export default function App() {
   }
 
   function handleProcedureListSelect(procedureId: number) {
+    setSelectedAirwayPath([]);
     setSelectedProcedureId(procedureId);
     queueMapFocus({
       kind: "procedure",
@@ -640,6 +643,7 @@ export default function App() {
     }
 
     if (result.procedureId) {
+      setSelectedAirwayPath([]);
       if (result.procedureKind) {
         setProcedureFilter(result.procedureKind);
       }
@@ -652,15 +656,26 @@ export default function App() {
       return;
     }
 
-    if (result.entityType === "airway" && result.from && result.to) {
-      queueMapFocus({
-        kind: "bounds",
-        points: [result.from, result.to],
-      });
+    if (result.entityType === "airway") {
+      const airwayPath = result.path?.filter(Boolean) ?? [];
+      setSelectedAirwayPath(airwayPath);
+      if (airwayPath.length > 0) {
+        queueMapFocus({
+          kind: "bounds",
+          points: airwayPath,
+        });
+      } else if (result.from && result.to) {
+        setSelectedAirwayPath([result.from, result.to]);
+        queueMapFocus({
+          kind: "bounds",
+          points: [result.from, result.to],
+        });
+      }
       setActivePage("map");
       return;
     }
 
+    setSelectedAirwayPath([]);
     if (result.location) {
       queueMapFocus({
         kind: "location",
@@ -829,6 +844,7 @@ export default function App() {
               selectedAirportIdent={selectedAirportIdent}
               selectedProcedure={selectedProcedureGeometry}
               routeOverlay={routeMapOverlay}
+              selectedAirwayPath={selectedAirwayPath}
               focusRequest={focusRequest}
               basemapTone={basemapTone}
               visibility={visibility}

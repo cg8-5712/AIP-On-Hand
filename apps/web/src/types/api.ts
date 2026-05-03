@@ -149,6 +149,7 @@ export type SearchResultItem = {
   location?: LatLon | null;
   from?: LatLon | null;
   to?: LatLon | null;
+  path?: LatLon[] | null;
 };
 
 export type SearchResponse = {

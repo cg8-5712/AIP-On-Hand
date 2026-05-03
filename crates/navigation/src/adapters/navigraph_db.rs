@@ -39,6 +39,15 @@ pub struct LayerQuery {
 }
 
 #[derive(Debug, Clone)]
+struct AirwaySegment {
+    id: i64,
+    name: String,
+    airway_type: Option<String>,
+    from: LatLon,
+    to: LatLon,
+}
+
+#[derive(Debug, Clone)]
 pub struct NavDb {
     path: PathBuf,
     metadata: NavDbMetadata,
@@ -221,6 +230,16 @@ impl NavDb {
 
         let connection = self.connect()?;
         query_airport_runway_ends(&connection, normalized_ident)
+    }
+
+    pub fn airway_segments(&self, airway_name: &str) -> Result<Vec<AirwayFeature>> {
+        let normalized_name = airway_name.trim();
+        if normalized_name.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let connection = self.connect()?;
+        query_airway_segments(&connection, normalized_name)
     }
 
     pub fn plan_routes(
@@ -838,6 +857,53 @@ fn query_airport_runway_ends(
     }
 
     Ok(runway_ends)
+}
+
+fn query_airway_segments(
+    connection: &Connection,
+    airway_name: &str,
+) -> Result<Vec<AirwayFeature>> {
+    let mut statement = connection.prepare(
+        "
+        select
+          airway_id,
+          airway_name,
+          airway_type,
+          route_type,
+          direction,
+          minimum_altitude,
+          maximum_altitude,
+          from_lonx,
+          from_laty,
+          to_lonx,
+          to_laty
+        from airway
+        where upper(airway_name) = upper(?1)
+        order by airway_id asc
+        ",
+    )?;
+
+    let rows = statement.query_map(params![airway_name], |row| {
+        Ok(AirwayFeature {
+            id: row.get(0)?,
+            airway_name: row.get(1)?,
+            airway_type: row.get(2)?,
+            route_type: row.get(3)?,
+            direction: row.get(4)?,
+            minimum_altitude: row.get(5)?,
+            maximum_altitude: row.get(6)?,
+            from: LatLon {
+                lon: row.get(7)?,
+                lat: row.get(8)?,
+            },
+            to: LatLon {
+                lon: row.get(9)?,
+                lat: row.get(10)?,
+            },
+        })
+    })?;
+
+    rows.collect()
 }
 
 fn query_procedure_rows_for_airport(
@@ -1572,6 +1638,7 @@ fn search_airports(
             }),
             from: None,
             to: None,
+            path: None,
         })
     })?;
 
@@ -1642,6 +1709,7 @@ fn search_nav_entities(
             }),
             from: None,
             to: None,
+            path: None,
         })
     })?;
 
@@ -1665,46 +1733,221 @@ fn search_airways(
           to_laty
         from airway
         where upper(airway_name) like ?1
-        group by airway_name, airway_type, from_lonx, from_laty, to_lonx, to_laty
         order by
           case
             when upper(airway_name) = ?2 then 0
             when upper(airway_name) like ?3 then 1
             else 2
           end,
-          airway_name asc
-        limit ?4
+          airway_name asc,
+          airway_id asc
         ",
     )?;
 
     let starts_with = format!("{}%", pattern.trim_matches('%'));
     let exact = pattern.trim_matches('%').to_string();
-    let rows = statement.query_map(params![pattern, exact, starts_with, limit], |row| {
-        Ok(SearchResultItem {
-            id: format!("airway:{}", row.get::<_, i64>(0)?),
-            entity_type: SearchEntityType::Airway,
-            ident: row.get(1)?,
-            name: None,
-            airport_ident: None,
-            airport_name: None,
-            procedure_id: None,
-            procedure_kind: None,
-            procedure_type: None,
-            runway_name: None,
-            airway_type: row.get(2)?,
-            location: None,
-            from: Some(LatLon {
-                lon: row.get(3)?,
-                lat: row.get(4)?,
-            }),
-            to: Some(LatLon {
-                lon: row.get(5)?,
-                lat: row.get(6)?,
-            }),
-        })
-    })?;
 
-    rows.collect()
+    let segments: Vec<AirwaySegment> = statement
+        .query_map(params![pattern, exact, starts_with], |row| {
+            Ok(AirwaySegment {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                airway_type: row.get(2)?,
+                from: LatLon {
+                    lon: row.get(3)?,
+                    lat: row.get(4)?,
+                },
+                to: LatLon {
+                    lon: row.get(5)?,
+                    lat: row.get(6)?,
+                },
+            })
+        })?
+        .collect::<Result<Vec<_>>>()?;
+
+    // Group segments by airway name and merge connected segments
+    let mut airway_groups: HashMap<String, Vec<AirwaySegment>> = HashMap::new();
+    for segment in segments {
+        airway_groups
+            .entry(segment.name.clone())
+            .or_insert_with(Vec::new)
+            .push(segment);
+    }
+
+    let mut results = Vec::new();
+    for (airway_name, mut segments) in airway_groups {
+        if segments.is_empty() {
+            continue;
+        }
+
+        // Merge connected segments into continuous paths
+        let merged_paths = merge_airway_segments(&mut segments);
+
+        // Create one search result per continuous path
+        for path in merged_paths {
+            if path.is_empty() {
+                continue;
+            }
+
+            let first = &path[0];
+            let last = &path[path.len() - 1];
+
+            results.push(SearchResultItem {
+                id: format!("airway:{}:{}", airway_name, first.id),
+                entity_type: SearchEntityType::Airway,
+                ident: airway_name.clone(),
+                name: Some(format!("{} segments", path.len())),
+                airport_ident: None,
+                airport_name: None,
+                procedure_id: None,
+                procedure_kind: None,
+                procedure_type: None,
+                runway_name: None,
+                airway_type: first.airway_type.clone(),
+                location: None,
+                from: Some(first.from.clone()),
+                to: Some(last.to.clone()),
+                path: Some(airway_path_points(&path)),
+            });
+        }
+
+        if results.len() >= limit as usize {
+            break;
+        }
+    }
+
+    results.truncate(limit as usize);
+    Ok(results)
+}
+
+fn reverse_airway_segment(segment: &AirwaySegment) -> AirwaySegment {
+    AirwaySegment {
+        id: segment.id,
+        name: segment.name.clone(),
+        airway_type: segment.airway_type.clone(),
+        from: segment.to,
+        to: segment.from,
+    }
+}
+
+fn airway_path_points(path: &[AirwaySegment]) -> Vec<LatLon> {
+    if path.is_empty() {
+        return Vec::new();
+    }
+
+    let mut points = vec![path[0].from, path[0].to];
+
+    for segment in path.iter().skip(1) {
+        if let Some(last_point) = points.last() {
+            if points_close(last_point, &segment.from) {
+                points.push(segment.to);
+                continue;
+            }
+
+            if points_close(last_point, &segment.to) {
+                points.push(segment.from);
+                continue;
+            }
+        }
+
+        points.push(segment.from);
+        points.push(segment.to);
+    }
+
+    points
+}
+
+fn merge_airway_segments(segments: &mut [AirwaySegment]) -> Vec<Vec<AirwaySegment>> {
+    if segments.is_empty() {
+        return Vec::new();
+    }
+
+    let mut paths: Vec<Vec<AirwaySegment>> = Vec::new();
+    let mut used = vec![false; segments.len()];
+
+    for start_idx in 0..segments.len() {
+        if used[start_idx] {
+            continue;
+        }
+
+        let mut current_path = vec![start_idx];
+        used[start_idx] = true;
+
+        // Try to extend the path forward
+        loop {
+            let last_idx = *current_path.last().unwrap();
+            let last_to = segments[last_idx].to;
+
+            let next = segments.iter().enumerate().find_map(|(idx, seg)| {
+                if used[idx] {
+                    return None;
+                }
+
+                if points_close(&seg.from, &last_to) {
+                    Some((idx, false))
+                } else if points_close(&seg.to, &last_to) {
+                    Some((idx, true))
+                } else {
+                    None
+                }
+            });
+
+            if let Some((next_idx, should_reverse)) = next {
+                if should_reverse {
+                    segments[next_idx] = reverse_airway_segment(&segments[next_idx]);
+                }
+                current_path.push(next_idx);
+                used[next_idx] = true;
+            } else {
+                break;
+            }
+        }
+
+        // Try to extend the path backward
+        loop {
+            let first_idx = current_path[0];
+            let first_from = segments[first_idx].from;
+
+            let prev = segments.iter().enumerate().find_map(|(idx, seg)| {
+                if used[idx] {
+                    return None;
+                }
+
+                if points_close(&seg.to, &first_from) {
+                    Some((idx, false))
+                } else if points_close(&seg.from, &first_from) {
+                    Some((idx, true))
+                } else {
+                    None
+                }
+            });
+
+            if let Some((prev_idx, should_reverse)) = prev {
+                if should_reverse {
+                    segments[prev_idx] = reverse_airway_segment(&segments[prev_idx]);
+                }
+                current_path.insert(0, prev_idx);
+                used[prev_idx] = true;
+            } else {
+                break;
+            }
+        }
+
+        // Collect the actual segments for this path
+        let path_segments: Vec<AirwaySegment> = current_path
+            .into_iter()
+            .map(|idx| segments[idx].clone())
+            .collect();
+
+        paths.push(path_segments);
+    }
+
+    paths
+}
+
+fn points_close(a: &LatLon, b: &LatLon) -> bool {
+    const EPSILON: f64 = 0.0001; // Approximately 11 meters
+    (a.lat - b.lat).abs() < EPSILON && (a.lon - b.lon).abs() < EPSILON
 }
 
 fn search_procedures(
@@ -1842,6 +2085,7 @@ fn search_procedures(
             location: Some(airport_location),
             from: None,
             to: None,
+            path: None,
         })
     })?;
 
@@ -2232,5 +2476,86 @@ mod tests {
         assert!(!airway_allows_departure(Some("F"), 20, 10, 20));
         assert!(airway_allows_departure(Some("B"), 20, 10, 20));
         assert!(!airway_allows_departure(Some("B"), 10, 10, 20));
+    }
+
+    #[test]
+    fn merges_connected_airway_segments_even_when_one_segment_is_reversed() {
+        let mut segments = vec![
+            AirwaySegment {
+                id: 10,
+                name: "W123".to_string(),
+                airway_type: Some("V".to_string()),
+                from: LatLon {
+                    lat: 40.0,
+                    lon: 116.0,
+                },
+                to: LatLon {
+                    lat: 40.5,
+                    lon: 116.5,
+                },
+            },
+            AirwaySegment {
+                id: 11,
+                name: "W123".to_string(),
+                airway_type: Some("V".to_string()),
+                from: LatLon {
+                    lat: 41.0,
+                    lon: 117.0,
+                },
+                to: LatLon {
+                    lat: 40.5,
+                    lon: 116.5,
+                },
+            },
+            AirwaySegment {
+                id: 12,
+                name: "W123".to_string(),
+                airway_type: Some("V".to_string()),
+                from: LatLon {
+                    lat: 41.0,
+                    lon: 117.0,
+                },
+                to: LatLon {
+                    lat: 41.5,
+                    lon: 117.5,
+                },
+            },
+        ];
+
+        let merged = merge_airway_segments(&mut segments);
+
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].len(), 3);
+
+        let points = airway_path_points(&merged[0]);
+        assert_eq!(points.len(), 4);
+        assert!(points_close(
+            &points[0],
+            &LatLon {
+                lat: 40.0,
+                lon: 116.0,
+            }
+        ));
+        assert!(points_close(
+            &points[1],
+            &LatLon {
+                lat: 40.5,
+                lon: 116.5,
+            }
+        ));
+        assert!(points_close(
+            &points[2],
+            &LatLon {
+                lat: 41.0,
+                lon: 117.0,
+            }
+        ));
+        assert!(points_close(
+            &points[3],
+            &LatLon {
+                lat: 41.5,
+                lon: 117.5,
+            }
+        ));
     }
 }

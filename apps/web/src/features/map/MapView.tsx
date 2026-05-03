@@ -23,6 +23,7 @@ type MapViewProps = {
   selectedAirportIdent: string | null;
   selectedProcedure: ProcedureGeometryResponse | null;
   routeOverlay: RouteMapOverlay | null;
+  selectedAirwayPath: LatLon[];
   focusRequest: MapFocusRequest | null;
   basemapTone: BasemapTone;
   visibility: LayerVisibility;
@@ -428,6 +429,7 @@ export function MapView({
   selectedAirportIdent,
   selectedProcedure,
   routeOverlay,
+  selectedAirwayPath,
   focusRequest,
   basemapTone,
   visibility,
@@ -448,6 +450,7 @@ export function MapView({
   const selectedAirportLayerRef = useRef<L.LayerGroup | null>(null);
   const procedureLayerRef = useRef<L.LayerGroup | null>(null);
   const routeOverlayLayerRef = useRef<L.LayerGroup | null>(null);
+  const selectedAirwayLayerRef = useRef<L.LayerGroup | null>(null);
   const lastHandledFocusRequestIdRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -486,6 +489,7 @@ export function MapView({
     ndbLayerRef.current = L.layerGroup().addTo(map);
     airportLayerRef.current = L.layerGroup().addTo(map);
     selectedAirportLayerRef.current = L.layerGroup().addTo(map);
+    selectedAirwayLayerRef.current = L.layerGroup().addTo(map);
     routeOverlayLayerRef.current = L.layerGroup().addTo(map);
     procedureLayerRef.current = L.layerGroup().addTo(map);
 
@@ -534,6 +538,7 @@ export function MapView({
       ndbLayerRef.current = null;
       airportLayerRef.current = null;
       selectedAirportLayerRef.current = null;
+      selectedAirwayLayerRef.current = null;
       procedureLayerRef.current = null;
       routeOverlayLayerRef.current = null;
     };
@@ -811,6 +816,59 @@ export function MapView({
       procedurePalette.approach.point,
     );
   }, [routeOverlay]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const selectedAirwayLayer = selectedAirwayLayerRef.current;
+
+    if (!map || !selectedAirwayLayer) {
+      return;
+    }
+
+    selectedAirwayLayer.clearLayers();
+
+    if (selectedAirwayPath.length < 2) {
+      return;
+    }
+
+    const airwayPath = selectedAirwayPath.map((point) => [point.lat, point.lon] as L.LatLngTuple);
+
+    L.polyline(airwayPath, {
+      color: "#fef3c7",
+      weight: 9,
+      opacity: 0.72,
+    }).addTo(selectedAirwayLayer);
+
+    L.polyline(airwayPath, {
+      color: "#f59e0b",
+      weight: 5.6,
+      opacity: 0.96,
+    }).addTo(selectedAirwayLayer);
+
+    const uniquePoints = new Set<string>();
+    for (const point of selectedAirwayPath) {
+      uniquePoints.add(`${point.lat},${point.lon}`);
+    }
+
+    for (const pointKey of uniquePoints) {
+      const [lat, lon] = pointKey.split(",").map(Number);
+      L.circleMarker([lat, lon], {
+        radius: 4.4,
+        weight: 0,
+        color: "#fef3c7",
+        fillColor: "#fef3c7",
+        fillOpacity: 0.72,
+      }).addTo(selectedAirwayLayer);
+
+      L.circleMarker([lat, lon], {
+        radius: 3.2,
+        weight: 2,
+        color: "#fef3c7",
+        fillColor: "#f59e0b",
+        fillOpacity: 0.96,
+      }).addTo(selectedAirwayLayer);
+    }
+  }, [selectedAirwayPath]);
 
   useEffect(() => {
     const map = mapRef.current;

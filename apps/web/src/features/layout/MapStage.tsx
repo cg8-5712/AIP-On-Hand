@@ -11,6 +11,7 @@ import type {
 import type {
   AirportFeature,
   AirportWeatherOverviewResponse,
+  LatLon,
   MapLayersResponse,
   ProcedureGeometryResponse,
 } from "../../types/api";
@@ -20,6 +21,7 @@ type MapStageProps = {
   selectedAirportIdent: string | null;
   selectedProcedure: ProcedureGeometryResponse | null;
   routeOverlay: RouteMapOverlay | null;
+  selectedAirwayPath: LatLon[];
   focusRequest: MapFocusRequest | null;
   basemapTone: BasemapTone;
   visibility: LayerVisibility;
@@ -40,6 +42,7 @@ export function MapStage({
   selectedAirportIdent,
   selectedProcedure,
   routeOverlay,
+  selectedAirwayPath,
   focusRequest,
   basemapTone,
   visibility,
@@ -75,6 +78,7 @@ export function MapStage({
           selectedAirportIdent={selectedAirportIdent}
           selectedProcedure={selectedProcedure}
           routeOverlay={routeOverlay}
+          selectedAirwayPath={selectedAirwayPath}
           focusRequest={focusRequest}
           basemapTone={basemapTone}
           visibility={visibility}
