@@ -1,8 +1,10 @@
 import type {
+  AirportRunwayEnd,
   Bounds,
   LatLon,
   ProcedureGeometryResponse,
   ProcedureKind,
+  ProcedureSummary,
   RoutePlanCandidate,
 } from "../../types/api";
 
@@ -51,11 +53,36 @@ export type RoutePreviewSelection = {
   approachProcedureId: number | null;
 };
 
+export type RouteProcedureSelectionStage = "departure" | "arrival-star" | "arrival-approach";
+
+export type RoutePlanningProcedureGroup = {
+  airportIdent: string;
+  runwayName: string | null;
+  procedures: ProcedureSummary[];
+  displayedProcedureIds: number[];
+  selectedProcedureId: number | null;
+  displayedProcedures: ProcedureGeometryResponse[];
+};
+
+export type RoutePlanningOverlay = {
+  departureAirportIdent: string;
+  arrivalAirportIdent: string;
+  departureRunways: AirportRunwayEnd[];
+  arrivalRunways: AirportRunwayEnd[];
+  selectedDepartureRunwayName: string | null;
+  selectedArrivalRunwayName: string | null;
+  departure: RoutePlanningProcedureGroup | null;
+  arrivalStar: RoutePlanningProcedureGroup | null;
+  arrivalApproach: RoutePlanningProcedureGroup | null;
+  activeStage: RouteProcedureSelectionStage | null;
+};
+
 export type RouteMapOverlay = {
   selection: RoutePreviewSelection;
   departureProcedure: ProcedureGeometryResponse | null;
   arrivalProcedure: ProcedureGeometryResponse | null;
   approachProcedure: ProcedureGeometryResponse | null;
+  planning: RoutePlanningOverlay | null;
 };
 
 export const initialVisibility: LayerVisibility = {

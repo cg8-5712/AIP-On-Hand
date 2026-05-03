@@ -165,6 +165,19 @@ export type RouteProcedureOption = {
   runwayName?: string | null;
 };
 
+export type AirportRunwayEnd = {
+  runwayName: string;
+  reciprocalRunwayName: string;
+  headingDeg: number;
+  lengthFt: number;
+  widthFt: number;
+  surface?: string | null;
+  isTakeoff: boolean;
+  isLanding: boolean;
+  ilsIdent?: string | null;
+  location: LatLon;
+};
+
 export type RouteProcedurePoint = {
   ident: string;
   location: LatLon;

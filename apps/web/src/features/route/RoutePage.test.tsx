@@ -1,5 +1,4 @@
-import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RoutePage } from "./RoutePage";
@@ -10,7 +9,7 @@ describe("RoutePage", () => {
     vi.restoreAllMocks();
   });
 
-  it("submits route planning inputs, renders candidate routes, and reports the selected route", async () => {
+  it("plans a route, exposes runway-first planning, and accepts map-driven procedure selection", async () => {
     const user = userEvent.setup();
     const previewSpy = vi.fn();
 
@@ -72,9 +71,9 @@ describe("RoutePage", () => {
               {
                 procedureId: 104624,
                 name: "AND91A",
-                arincName: "RW34B",
+                arincName: "RW34L",
                 procedureType: "GPS",
-                runwayName: "34B",
+                runwayName: "34L",
               },
             ],
           },
@@ -91,7 +90,125 @@ describe("RoutePage", () => {
       ],
     });
 
-    render(<RoutePage onRoutePreviewChange={previewSpy} />);
+    vi.spyOn(api, "getAirportProcedures").mockImplementation(async (airportIdent) => {
+      if (airportIdent === "ZBAA") {
+        return {
+          airport: {
+            id: 1,
+            ident: "ZBAA",
+            icao: "ZBAA",
+            name: "Capital",
+            location: { lon: 116.5983, lat: 40.0733 },
+          },
+          procedures: [
+            {
+              id: 71967,
+              airportIdent: "ZBAA",
+              airportName: "Capital",
+              name: "BOTP7X",
+              arincName: "RW01",
+              procedureType: "SID",
+              procedureKind: "sid",
+              runwayName: "01",
+              legs: 6,
+            },
+            {
+              id: 71968,
+              airportIdent: "ZBAA",
+              airportName: "Capital",
+              name: "BOTP9Y",
+              arincName: "RW19",
+              procedureType: "SID",
+              procedureKind: "sid",
+              runwayName: "19",
+              legs: 5,
+            },
+          ],
+        };
+      }
+
+      return {
+        airport: {
+          id: 2,
+          ident: "ZSPD",
+          icao: "ZSPD",
+          name: "Pudong",
+          location: { lon: 121.805, lat: 31.1434 },
+        },
+        procedures: [
+          {
+            id: 104624,
+            airportIdent: "ZSPD",
+            airportName: "Pudong",
+            name: "AND91A",
+            arincName: "RW34L",
+            procedureType: "STAR",
+            procedureKind: "star",
+            runwayName: "34L",
+            legs: 7,
+          },
+          {
+            id: 204001,
+            airportIdent: "ZSPD",
+            airportName: "Pudong",
+            name: "ILS34L",
+            arincName: "ILS34L",
+            procedureType: "ILS",
+            procedureKind: "approach",
+            runwayName: "34L",
+            legs: 8,
+          },
+        ],
+      };
+    });
+
+    vi.spyOn(api, "getAirportRunwayEnds").mockImplementation(async (airportIdent) => {
+      if (airportIdent === "ZBAA") {
+        return [
+          {
+            runwayName: "01",
+            reciprocalRunwayName: "19",
+            headingDeg: 10,
+            lengthFt: 12468,
+            widthFt: 197,
+            surface: "ASP",
+            isTakeoff: true,
+            isLanding: true,
+            ilsIdent: null,
+            location: { lon: 116.5983, lat: 40.0733 },
+          },
+          {
+            runwayName: "19",
+            reciprocalRunwayName: "01",
+            headingDeg: 190,
+            lengthFt: 12468,
+            widthFt: 197,
+            surface: "ASP",
+            isTakeoff: true,
+            isLanding: true,
+            ilsIdent: null,
+            location: { lon: 116.61, lat: 40.06 },
+          },
+        ];
+      }
+
+      return [
+        {
+          runwayName: "34L",
+          reciprocalRunwayName: "16R",
+          headingDeg: 340,
+          lengthFt: 13123,
+          widthFt: 197,
+          surface: "CON",
+          isTakeoff: true,
+          isLanding: true,
+          ilsIdent: "ISPD",
+          location: { lon: 121.805, lat: 31.1434 },
+        },
+      ];
+    });
+
+    const { rerender } = render(<RoutePage onRoutePreviewChange={previewSpy} />);
 
     await user.type(screen.getByLabelText(/departure/i), "zbaa");
     await user.type(screen.getByLabelText(/arrival/i), "zspd");
@@ -109,18 +226,61 @@ describe("RoutePage", () => {
 
     expect(await screen.findByText(/ZBAA to ZSPD at FL360/i)).toBeInTheDocument();
     expect(screen.getByText(/BOTPU A461 PIMOL/i)).toBeInTheDocument();
-    expect(screen.getByText(/BOTP7X/i)).toBeInTheDocument();
-    expect(screen.getByText(/AND91A/i)).toBeInTheDocument();
-    expect(screen.getByText(/ILS34L/i)).toBeInTheDocument();
+    expect(screen.getByText(/published approach option/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /show on map/i }));
 
-    expect(previewSpy).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        departureProcedureId: 71967,
-        arrivalProcedureId: 104624,
-        approachProcedureId: 204001,
-      }),
-    );
+    await waitFor(() => {
+      expect(previewSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          departureProcedureId: null,
+          arrivalProcedureId: null,
+          approachProcedureId: null,
+        }),
+        expect.objectContaining({
+          activeStage: "departure",
+          selectedDepartureRunwayName: null,
+          selectedArrivalRunwayName: null,
+        }),
+      );
+    });
+
+    await user.click(await screen.findByRole("button", { name: "RWY 01" }));
+
+    await waitFor(() => {
+      expect(previewSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          departureProcedureId: null,
+          arrivalProcedureId: null,
+          approachProcedureId: null,
+        }),
+        expect.objectContaining({
+          selectedDepartureRunwayName: "01",
+          departure: expect.objectContaining({
+            runwayName: "01",
+            displayedProcedureIds: [71967],
+            selectedProcedureId: null,
+          }),
+        }),
+      );
+    });
+
+    rerender(<RoutePage onRoutePreviewChange={previewSpy} planningProcedureSelectionId={71967} />);
+
+    await waitFor(() => {
+      expect(previewSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          departureProcedureId: 71967,
+          arrivalProcedureId: null,
+          approachProcedureId: null,
+        }),
+        expect.objectContaining({
+          selectedDepartureRunwayName: "01",
+          departure: expect.objectContaining({
+            selectedProcedureId: 71967,
+          }),
+        }),
+      );
+    });
   });
 });

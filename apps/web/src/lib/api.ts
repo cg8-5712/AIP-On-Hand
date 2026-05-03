@@ -1,4 +1,5 @@
 import type {
+  AirportRunwayEnd,
   AirportWeatherOverviewResponse,
   AirportProceduresResponse,
   Bounds,
@@ -246,6 +247,13 @@ export function getMapLayers(bounds: Bounds, options: LayerRequestOptions) {
 export function getAirportProcedures(airportIdent: string, options?: RequestOptions) {
   return requestJson<AirportProceduresResponse>(
     `/api/v1/airports/${encodeURIComponent(airportIdent)}/procedures`,
+    options,
+  );
+}
+
+export function getAirportRunwayEnds(airportIdent: string, options?: RequestOptions) {
+  return requestJson<AirportRunwayEnd[]>(
+    `/api/v1/airports/${encodeURIComponent(airportIdent)}/runway-ends`,
     options,
   );
 }

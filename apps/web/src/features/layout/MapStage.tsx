@@ -6,6 +6,7 @@ import type {
   LayerVisibility,
   MapFocusRequest,
   RouteMapOverlay,
+  RoutePlanningOverlay,
   ViewportState,
 } from "../app/types";
 import type {
@@ -21,6 +22,7 @@ type MapStageProps = {
   selectedAirportIdent: string | null;
   selectedProcedure: ProcedureGeometryResponse | null;
   routeOverlay: RouteMapOverlay | null;
+  routePlanningOverlay: RoutePlanningOverlay | null;
   selectedAirwayPath: LatLon[];
   focusRequest: MapFocusRequest | null;
   basemapTone: BasemapTone;
@@ -35,6 +37,7 @@ type MapStageProps = {
   onAirportInspectorClose: () => void;
   onBasemapToneChange: (tone: BasemapTone) => void;
   onFocusRequestHandled: (requestId: number) => void;
+  onPlanningProcedureSelect: (procedureId: number) => void;
 };
 
 export function MapStage({
@@ -42,6 +45,7 @@ export function MapStage({
   selectedAirportIdent,
   selectedProcedure,
   routeOverlay,
+  routePlanningOverlay,
   selectedAirwayPath,
   focusRequest,
   basemapTone,
@@ -56,6 +60,7 @@ export function MapStage({
   onAirportInspectorClose,
   onBasemapToneChange,
   onFocusRequestHandled,
+  onPlanningProcedureSelect,
 }: MapStageProps) {
   const selectedProcedureSummary = selectedProcedure?.summary ?? null;
   const selectedPathCount = (selectedProcedure?.path.length ?? 0) + (selectedProcedure?.missedPath.length ?? 0);
@@ -78,6 +83,7 @@ export function MapStage({
           selectedAirportIdent={selectedAirportIdent}
           selectedProcedure={selectedProcedure}
           routeOverlay={routeOverlay}
+          routePlanningOverlay={routePlanningOverlay}
           selectedAirwayPath={selectedAirwayPath}
           focusRequest={focusRequest}
           basemapTone={basemapTone}
@@ -85,6 +91,7 @@ export function MapStage({
           onViewportChange={onViewportChange}
           onAirportSelect={onAirportSelect}
           onFocusRequestHandled={onFocusRequestHandled}
+          onPlanningProcedureSelect={onPlanningProcedureSelect}
         />
 
         <div className="pointer-events-none absolute inset-x-0 top-0 z-[500] flex flex-col gap-3 p-4 md:p-5">

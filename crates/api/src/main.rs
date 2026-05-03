@@ -483,6 +483,22 @@ async fn airport_procedures(
     Ok(Json(payload))
 }
 
+#[get("/api/v1/airports/{airport_ident}/runway-ends")]
+async fn airport_runway_ends(
+    state: Data<AppState>,
+    airport_ident: Path<String>,
+) -> Result<Json<Vec<aip_domain::AirportRunwayEnd>>, ApiError> {
+    let airport_ident = airport_ident.into_inner();
+    let payload = state
+        .nav_db
+        .airport_runway_ends(&airport_ident)
+        .map_err(|error| {
+            ApiError::Internal(format!("failed to query airport runway ends: {error}"))
+        })?;
+
+    Ok(Json(payload))
+}
+
 #[get("/api/v1/procedures/{procedure_id}")]
 async fn procedure_geometry(
     state: Data<AppState>,
@@ -749,6 +765,7 @@ async fn main() -> io::Result<()> {
             .service(eaip_chart_content)
             .service(map_layers)
             .service(airport_procedures)
+            .service(airport_runway_ends)
             .service(airport_overview)
             .service(procedure_geometry)
             .service(route_plan)

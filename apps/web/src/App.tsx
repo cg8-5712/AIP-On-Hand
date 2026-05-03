@@ -10,6 +10,8 @@ import {
   type MapFocusRequestPayload,
   type ProcedureFilter,
   type RouteMapOverlay,
+  type RoutePlanningOverlay,
+  type RoutePlanningProcedureGroup,
   type RoutePreviewSelection,
   type ViewportState,
 } from "./features/app/types";
@@ -94,6 +96,41 @@ function routeOverlayPoints(overlay: RouteMapOverlay): LatLon[] {
   return points;
 }
 
+function sameProcedureIdList(left: number[], right: number[]) {
+  return left.length === right.length && left.every((procedureId, index) => procedureId === right[index]);
+}
+
+function mergePlanningProcedureGroup(
+  current: RoutePlanningProcedureGroup | null,
+  next: RoutePlanningProcedureGroup | null,
+) {
+  if (!next) {
+    return null;
+  }
+
+  if (!current || !sameProcedureIdList(current.displayedProcedureIds, next.displayedProcedureIds)) {
+    return next;
+  }
+
+  return {
+    ...next,
+    displayedProcedures: current.displayedProcedures,
+  };
+}
+
+function mergeRoutePlanningOverlay(current: RoutePlanningOverlay | null, next: RoutePlanningOverlay | null) {
+  if (!next) {
+    return null;
+  }
+
+  return {
+    ...next,
+    departure: mergePlanningProcedureGroup(current?.departure ?? null, next.departure),
+    arrivalStar: mergePlanningProcedureGroup(current?.arrivalStar ?? null, next.arrivalStar),
+    arrivalApproach: mergePlanningProcedureGroup(current?.arrivalApproach ?? null, next.arrivalApproach),
+  };
+}
+
 export default function App() {
   const [activePage, setActivePage] = useState<AppPage>("map");
   const [bootstrap, setBootstrap] = useState<BootstrapState>({});
@@ -127,7 +164,9 @@ export default function App() {
   const [focusRequest, setFocusRequest] = useState<MapFocusRequest | null>(null);
   const [basemapTone, setBasemapTone] = useState<BasemapTone>(getInitialBasemapTone);
   const [selectedRoutePreview, setSelectedRoutePreview] = useState<RoutePreviewSelection | null>(null);
+  const [routePlanningOverlay, setRoutePlanningOverlay] = useState<RoutePlanningOverlay | null>(null);
   const [routeMapOverlay, setRouteMapOverlay] = useState<RouteMapOverlay | null>(null);
+  const [planningProcedureSelectionId, setPlanningProcedureSelectionId] = useState<number | null>(null);
   const deferredAirportFilter = useDeferredValue(airportFilter);
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const focusRequestIdRef = useRef(0);
@@ -145,6 +184,11 @@ export default function App() {
     activePage === "route"
       ? "layout-panel flex min-h-[620px] flex-col overflow-hidden xl:min-h-0"
       : "layout-panel flex min-h-[620px] flex-col overflow-hidden xl:min-h-0";
+  const planningDisplayedProcedureKey = [
+    routePlanningOverlay?.departure?.displayedProcedureIds.join(",") ?? "",
+    routePlanningOverlay?.arrivalStar?.displayedProcedureIds.join(",") ?? "",
+    routePlanningOverlay?.arrivalApproach?.displayedProcedureIds.join(",") ?? "",
+  ].join("|");
 
   useEffect(() => {
     let active = true;
@@ -380,6 +424,80 @@ export default function App() {
   }, [selectedProcedureId]);
 
   useEffect(() => {
+    if (!routePlanningOverlay) {
+      return;
+    }
+
+    const planning = routePlanningOverlay;
+    const controller = new AbortController();
+
+    async function loadPlanningGeometries() {
+      const procedureIds = [
+        ...(planning.departure?.displayedProcedureIds ?? []),
+        ...(planning.arrivalStar?.displayedProcedureIds ?? []),
+        ...(planning.arrivalApproach?.displayedProcedureIds ?? []),
+      ].filter((procedureId, index, allIds) => procedureId > 0 && allIds.indexOf(procedureId) === index);
+
+      try {
+        const geometries = await Promise.all(
+          procedureIds.map((procedureId) => getProcedureGeometry(procedureId, { signal: controller.signal })),
+        );
+
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        const geometryById = new Map(geometries.map((geometry) => [geometry.summary.id, geometry]));
+        setRoutePlanningOverlay((current) => {
+          if (!current) {
+            return current;
+          }
+
+          return {
+            ...current,
+            departure: current.departure
+              ? {
+                  ...current.departure,
+                  displayedProcedures: current.departure.displayedProcedureIds
+                    .map((procedureId) => geometryById.get(procedureId))
+                    .filter((geometry): geometry is ProcedureGeometryResponse => Boolean(geometry)),
+                }
+              : null,
+            arrivalStar: current.arrivalStar
+              ? {
+                  ...current.arrivalStar,
+                  displayedProcedures: current.arrivalStar.displayedProcedureIds
+                    .map((procedureId) => geometryById.get(procedureId))
+                    .filter((geometry): geometry is ProcedureGeometryResponse => Boolean(geometry)),
+                }
+              : null,
+            arrivalApproach: current.arrivalApproach
+              ? {
+                  ...current.arrivalApproach,
+                  displayedProcedures: current.arrivalApproach.displayedProcedureIds
+                    .map((procedureId) => geometryById.get(procedureId))
+                    .filter((geometry): geometry is ProcedureGeometryResponse => Boolean(geometry)),
+                }
+              : null,
+          };
+        });
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setProcedureError(error instanceof Error ? error.message : "Failed to load planning procedures");
+      }
+    }
+
+    loadPlanningGeometries();
+
+    return () => {
+      controller.abort();
+    };
+  }, [planningDisplayedProcedureKey]);
+
+  useEffect(() => {
     if (!selectedRoutePreview) {
       setRouteMapOverlay(null);
       return;
@@ -414,6 +532,7 @@ export default function App() {
           departureProcedure,
           arrivalProcedure,
           approachProcedure,
+          planning: routePlanningOverlay,
         });
         setProcedureError(null);
       } catch (error) {
@@ -434,6 +553,19 @@ export default function App() {
   }, [selectedRoutePreview]);
 
   useEffect(() => {
+    setRouteMapOverlay((current) => {
+      if (!current || current.planning === routePlanningOverlay) {
+        return current;
+      }
+
+      return {
+        ...current,
+        planning: routePlanningOverlay,
+      };
+    });
+  }, [routePlanningOverlay]);
+
+  useEffect(() => {
     if (!routeMapOverlay) {
       return;
     }
@@ -447,7 +579,7 @@ export default function App() {
       kind: "bounds",
       points,
     });
-  }, [routeMapOverlay]);
+  }, [routeMapOverlay?.selection.candidate]);
 
   const visibleAirports = useMemo(() => {
     const airports = layers?.airports ?? [];
@@ -817,7 +949,13 @@ export default function App() {
               ) : null}
 
               <div className={activePage === "route" ? "block" : "hidden"} aria-hidden={activePage !== "route"}>
-                <RoutePage onRoutePreviewChange={setSelectedRoutePreview} />
+                <RoutePage
+                  planningProcedureSelectionId={planningProcedureSelectionId}
+                  onRoutePreviewChange={(selection, planning) => {
+                    setSelectedRoutePreview(selection);
+                    setRoutePlanningOverlay((current) => mergeRoutePlanningOverlay(current, planning ?? null));
+                  }}
+                />
               </div>
               {activePage === "fuel" ? (
                 <FuelPage
@@ -844,6 +982,7 @@ export default function App() {
               selectedAirportIdent={selectedAirportIdent}
               selectedProcedure={selectedProcedureGeometry}
               routeOverlay={routeMapOverlay}
+              routePlanningOverlay={routePlanningOverlay}
               selectedAirwayPath={selectedAirwayPath}
               focusRequest={focusRequest}
               basemapTone={basemapTone}
@@ -859,6 +998,12 @@ export default function App() {
               onBasemapToneChange={setBasemapTone}
               onFocusRequestHandled={(requestId) => {
                 setFocusRequest((current) => (current?.requestId === requestId ? null : current));
+              }}
+              onPlanningProcedureSelect={(procedureId) => {
+                setPlanningProcedureSelectionId(null);
+                queueMicrotask(() => {
+                  setPlanningProcedureSelectionId(procedureId);
+                });
               }}
             />
           ) : null}

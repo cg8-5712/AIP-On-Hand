@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { RoutePreviewSelection } from "../app/types";
-import { planRoute } from "../../lib/api";
+import { useEffect, useEffectEvent, useMemo, useRef, useState, type FormEvent } from "react";
+import type { RoutePlanningOverlay, RoutePreviewSelection } from "../app/types";
+import { getAirportProcedures, getAirportRunwayEnds, planRoute } from "../../lib/api";
 import type {
+  AirportRunwayEnd,
+  ProcedureSummary,
   RouteAirwaySegment,
   RoutePlanCandidate,
   RoutePlanResponse,
@@ -9,20 +11,21 @@ import type {
 } from "../../types/api";
 
 type RoutePageProps = {
-  onRoutePreviewChange?: (selection: RoutePreviewSelection | null) => void;
+  onRoutePreviewChange?: (selection: RoutePreviewSelection | null, planning?: RoutePlanningOverlay | null) => void;
+  planningProcedureSelectionId?: number | null;
 };
 
 type CandidateCardProps = {
   candidate: RoutePlanCandidate;
   index: number;
   isActive: boolean;
-  selectedDepartureProcedureId: number | null;
-  selectedArrivalProcedureId: number | null;
-  selectedApproachProcedureId: number | null;
   onActivate: () => void;
-  onDepartureProcedureSelect: (procedureId: number) => void;
-  onArrivalProcedureSelect: (procedureId: number) => void;
-  onApproachProcedureSelect: (procedureId: number) => void;
+};
+
+type AirportPlanningData = {
+  airportIdent: string;
+  procedures: ProcedureSummary[];
+  runways: AirportRunwayEnd[];
 };
 
 function formatDistance(distanceNm: number) {
@@ -82,6 +85,30 @@ function defaultProcedureId(procedures: RouteProcedureOption[]) {
   return procedures[0]?.procedureId ?? null;
 }
 
+function normalizeRunwayName(value: string | null | undefined) {
+  const normalized = value?.trim().toUpperCase();
+  return normalized ? normalized : null;
+}
+
+function sortRunwaysForOperation(runways: AirportRunwayEnd[], operation: "departure" | "arrival") {
+  return [...runways]
+    .filter((runway) => (operation === "departure" ? runway.isTakeoff : runway.isLanding))
+    .sort((left, right) => right.lengthFt - left.lengthFt || left.runwayName.localeCompare(right.runwayName));
+}
+
+function proceduresForKind(procedures: ProcedureSummary[], kind: ProcedureSummary["procedureKind"]) {
+  return procedures.filter((procedure) => procedure.procedureKind === kind);
+}
+
+function filterProceduresByRunway(procedures: ProcedureSummary[], runwayName: string | null) {
+  const normalizedRunwayName = normalizeRunwayName(runwayName);
+  if (!normalizedRunwayName) {
+    return procedures;
+  }
+
+  return procedures.filter((procedure) => normalizeRunwayName(procedure.runwayName) === normalizedRunwayName);
+}
+
 function ProcedureChip({
   label,
   isActive,
@@ -110,13 +137,7 @@ function CandidateCard({
   candidate,
   index,
   isActive,
-  selectedDepartureProcedureId,
-  selectedArrivalProcedureId,
-  selectedApproachProcedureId,
   onActivate,
-  onDepartureProcedureSelect,
-  onArrivalProcedureSelect,
-  onApproachProcedureSelect,
 }: CandidateCardProps) {
   return (
     <article
@@ -131,7 +152,7 @@ function CandidateCard({
           <p className="section-kicker">Candidate {index + 1}</p>
           <h3 className="section-title mt-1 break-words text-[1.15rem]">{formatAirwaySequence(candidate.airways)}</h3>
           <p className="mt-2 text-sm text-slate-300">
-            Select this candidate, then choose the exact SID, STAR, and approach to draw on the map.
+            Select this candidate first. Then choose departure runway and SID, followed by arrival runway, STAR, and approach.
           </p>
         </div>
         <div className="grid w-full gap-3 text-left sm:w-auto sm:min-w-[180px] sm:text-right">
@@ -166,18 +187,8 @@ function CandidateCard({
           <p className="m-0 text-[0.72rem] uppercase tracking-[0.28em] text-emerald-200/80">Departure</p>
           <p className="mt-2 font-mono text-lg text-emerald-100">{candidate.departure.ident}</p>
           <p className="mt-1 text-sm text-slate-300">
-            SID shortest path {formatDistance(candidate.departure.minimumProcedureDistanceNm)}
+            SID shortest path {formatDistance(candidate.departure.minimumProcedureDistanceNm)}. Detailed runway and SID selection starts after this route is displayed.
           </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {candidate.departure.procedures.map((procedure) => (
-              <ProcedureChip
-                key={procedure.procedureId}
-                label={formatProcedureLabel(procedure)}
-                isActive={selectedDepartureProcedureId === procedure.procedureId}
-                onClick={() => onDepartureProcedureSelect(procedure.procedureId)}
-              />
-            ))}
-          </div>
         </section>
 
         <section className="rounded-[20px] border border-sky-400/16 bg-sky-400/6 p-4">
@@ -209,46 +220,27 @@ function CandidateCard({
           <p className="m-0 text-[0.72rem] uppercase tracking-[0.28em] text-amber-200/80">Arrival</p>
           <p className="mt-2 font-mono text-lg text-amber-100">{candidate.arrival.ident}</p>
           <p className="mt-1 text-sm text-slate-300">
-            STAR shortest path {formatDistance(candidate.arrival.minimumProcedureDistanceNm)}
+            STAR shortest path {formatDistance(candidate.arrival.minimumProcedureDistanceNm)}. Arrival runway, STAR, and approach are selected after this route is displayed.
           </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {candidate.arrival.procedures.map((procedure) => (
-              <ProcedureChip
-                key={procedure.procedureId}
-                label={formatProcedureLabel(procedure)}
-                isActive={selectedArrivalProcedureId === procedure.procedureId}
-                onClick={() => onArrivalProcedureSelect(procedure.procedureId)}
-              />
-            ))}
-          </div>
         </section>
       </div>
 
       <section className="mt-4 rounded-[20px] border border-fuchsia-400/16 bg-fuchsia-400/6 p-4">
         <p className="m-0 text-[0.72rem] uppercase tracking-[0.28em] text-fuchsia-200/80">Approach</p>
         <p className="mt-2 text-sm text-slate-300">
-          Approach selection stays open. Use wind and operational constraints to choose the final runway and procedure.
+          Published approach candidates stay available, but exact approach selection moves to the runway-first arrival workflow.
         </p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {candidate.approaches.length > 0 ? (
-            candidate.approaches.map((procedure) => (
-              <ProcedureChip
-                key={procedure.procedureId}
-                label={formatProcedureLabel(procedure)}
-                isActive={selectedApproachProcedureId === procedure.procedureId}
-                onClick={() => onApproachProcedureSelect(procedure.procedureId)}
-              />
-            ))
-          ) : (
-            <span className="text-sm text-slate-400">No published approach candidates were resolved.</span>
-          )}
-        </div>
+        <p className="mt-3 text-sm text-slate-400">
+          {candidate.approaches.length > 0
+            ? `${candidate.approaches.length} published approach option(s) available after arrival runway selection.`
+            : "No published approach candidates were resolved."}
+        </p>
       </section>
     </article>
   );
 }
 
-export function RoutePage({ onRoutePreviewChange }: RoutePageProps) {
+export function RoutePage({ onRoutePreviewChange, planningProcedureSelectionId }: RoutePageProps) {
   const [departure, setDeparture] = useState("");
   const [arrival, setArrival] = useState("");
   const [cruiseAltitudeFt, setCruiseAltitudeFt] = useState("36000");
@@ -260,41 +252,284 @@ export function RoutePage({ onRoutePreviewChange }: RoutePageProps) {
   const [selectedDepartureProcedureId, setSelectedDepartureProcedureId] = useState<number | null>(null);
   const [selectedArrivalProcedureId, setSelectedArrivalProcedureId] = useState<number | null>(null);
   const [selectedApproachProcedureId, setSelectedApproachProcedureId] = useState<number | null>(null);
+  const [departurePlanningData, setDeparturePlanningData] = useState<AirportPlanningData | null>(null);
+  const [arrivalPlanningData, setArrivalPlanningData] = useState<AirportPlanningData | null>(null);
+  const [selectedDepartureRunwayName, setSelectedDepartureRunwayName] = useState<string | null>(null);
+  const [selectedArrivalRunwayName, setSelectedArrivalRunwayName] = useState<string | null>(null);
+  const [planningError, setPlanningError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const planningAbortRef = useRef<AbortController | null>(null);
+  const departureRunwayOptions = useMemo(
+    () => (departurePlanningData ? sortRunwaysForOperation(departurePlanningData.runways, "departure") : []),
+    [departurePlanningData],
+  );
+  const arrivalRunwayOptions = useMemo(
+    () => (arrivalPlanningData ? sortRunwaysForOperation(arrivalPlanningData.runways, "arrival") : []),
+    [arrivalPlanningData],
+  );
+  const availableDepartureProcedures = useMemo(
+    () =>
+      departurePlanningData
+        ? filterProceduresByRunway(
+            proceduresForKind(departurePlanningData.procedures, "sid"),
+            selectedDepartureRunwayName,
+          )
+        : [],
+    [departurePlanningData, selectedDepartureRunwayName],
+  );
+  const availableArrivalStarProcedures = useMemo(
+    () =>
+      arrivalPlanningData
+        ? filterProceduresByRunway(
+            proceduresForKind(arrivalPlanningData.procedures, "star"),
+            selectedArrivalRunwayName,
+          )
+        : [],
+    [arrivalPlanningData, selectedArrivalRunwayName],
+  );
+  const availableArrivalApproachProcedures = useMemo(
+    () =>
+      arrivalPlanningData
+        ? filterProceduresByRunway(
+            proceduresForKind(arrivalPlanningData.procedures, "approach"),
+            selectedArrivalRunwayName,
+          )
+        : [],
+    [arrivalPlanningData, selectedArrivalRunwayName],
+  );
+  const activeCandidate = useMemo(
+    () => (activeCandidateIndex !== null ? result?.candidates[activeCandidateIndex] ?? null : null),
+    [activeCandidateIndex, result],
+  );
+  const displayedDepartureProcedureIds = useMemo(
+    () => availableDepartureProcedures.map((procedure) => procedure.id),
+    [availableDepartureProcedures],
+  );
+  const displayedArrivalStarProcedureIds = useMemo(
+    () => availableArrivalStarProcedures.map((procedure) => procedure.id),
+    [availableArrivalStarProcedures],
+  );
+  const displayedArrivalApproachProcedureIds = useMemo(
+    () => availableArrivalApproachProcedures.map((procedure) => procedure.id),
+    [availableArrivalApproachProcedures],
+  );
+  const routePreviewSelection = useMemo<RoutePreviewSelection | null>(
+    () =>
+      activeCandidate
+        ? {
+            candidate: activeCandidate,
+            departureProcedureId: selectedDepartureProcedureId,
+            arrivalProcedureId: selectedArrivalProcedureId,
+            approachProcedureId: selectedApproachProcedureId,
+          }
+        : null,
+    [
+      activeCandidate,
+      selectedApproachProcedureId,
+      selectedArrivalProcedureId,
+      selectedDepartureProcedureId,
+    ],
+  );
+  const planningOverlay = useMemo<RoutePlanningOverlay | null>(
+    () =>
+      activeCandidate && departurePlanningData && arrivalPlanningData
+        ? {
+            departureAirportIdent: departurePlanningData.airportIdent,
+            arrivalAirportIdent: arrivalPlanningData.airportIdent,
+            departureRunways: departurePlanningData.runways,
+            arrivalRunways: arrivalPlanningData.runways,
+            selectedDepartureRunwayName,
+            selectedArrivalRunwayName,
+            departure: selectedDepartureRunwayName
+              ? {
+                  airportIdent: departurePlanningData.airportIdent,
+                  runwayName: selectedDepartureRunwayName,
+                  procedures: availableDepartureProcedures,
+                  displayedProcedureIds: displayedDepartureProcedureIds,
+                  selectedProcedureId: selectedDepartureProcedureId,
+                  displayedProcedures: [],
+                }
+              : null,
+            arrivalStar: selectedArrivalRunwayName
+              ? {
+                  airportIdent: arrivalPlanningData.airportIdent,
+                  runwayName: selectedArrivalRunwayName,
+                  procedures: availableArrivalStarProcedures,
+                  displayedProcedureIds: displayedArrivalStarProcedureIds,
+                  selectedProcedureId: selectedArrivalProcedureId,
+                  displayedProcedures: [],
+                }
+              : null,
+            arrivalApproach: selectedArrivalRunwayName && selectedArrivalProcedureId
+              ? {
+                  airportIdent: arrivalPlanningData.airportIdent,
+                  runwayName: selectedArrivalRunwayName,
+                  procedures: availableArrivalApproachProcedures,
+                  displayedProcedureIds: displayedArrivalApproachProcedureIds,
+                  selectedProcedureId: selectedApproachProcedureId,
+                  displayedProcedures: [],
+                }
+              : null,
+            activeStage: selectedArrivalProcedureId
+              ? "arrival-approach"
+              : selectedArrivalRunwayName
+                ? "arrival-star"
+                : "departure",
+          }
+        : null,
+    [
+      activeCandidate,
+      arrivalPlanningData,
+      availableArrivalApproachProcedures,
+      availableArrivalStarProcedures,
+      availableDepartureProcedures,
+      departurePlanningData,
+      displayedArrivalApproachProcedureIds,
+      displayedArrivalStarProcedureIds,
+      displayedDepartureProcedureIds,
+      selectedApproachProcedureId,
+      selectedArrivalProcedureId,
+      selectedArrivalRunwayName,
+      selectedDepartureProcedureId,
+      selectedDepartureRunwayName,
+    ],
+  );
+  const emitRoutePreviewChange = useEffectEvent(
+    (selection: RoutePreviewSelection | null, planning: RoutePlanningOverlay | null) => {
+      onRoutePreviewChange?.(selection, planning);
+    },
+  );
 
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
+      planningAbortRef.current?.abort();
     };
   }, []);
 
   useEffect(() => {
-    if (activeCandidateIndex === null || !result?.candidates[activeCandidateIndex]) {
-      onRoutePreviewChange?.(null);
+    emitRoutePreviewChange(routePreviewSelection, planningOverlay);
+  }, [
+    planningOverlay,
+    routePreviewSelection,
+  ]);
+
+  useEffect(() => {
+    if (!activeCandidate || !result) {
+      setDeparturePlanningData(null);
+      setArrivalPlanningData(null);
+      setSelectedDepartureRunwayName(null);
+      setSelectedArrivalRunwayName(null);
+      setPlanningError(null);
+      planningAbortRef.current?.abort();
       return;
     }
 
-    const candidate = result.candidates[activeCandidateIndex];
-    onRoutePreviewChange?.({
-      candidate,
-      departureProcedureId: selectedDepartureProcedureId ?? defaultProcedureId(candidate.departure.procedures),
-      arrivalProcedureId: selectedArrivalProcedureId ?? defaultProcedureId(candidate.arrival.procedures),
-      approachProcedureId: selectedApproachProcedureId ?? defaultProcedureId(candidate.approaches),
-    });
+    planningAbortRef.current?.abort();
+    const controller = new AbortController();
+    planningAbortRef.current = controller;
+    setPlanningError(null);
+
+    async function loadAirportPlanningData(airportIdent: string): Promise<AirportPlanningData> {
+      const [proceduresResponse, runwayEnds] = await Promise.all([
+        getAirportProcedures(airportIdent, { signal: controller.signal }),
+        getAirportRunwayEnds(airportIdent, { signal: controller.signal }),
+      ]);
+
+      return {
+        airportIdent: proceduresResponse.airport.ident,
+        procedures: proceduresResponse.procedures,
+        runways: runwayEnds,
+      };
+    }
+
+    Promise.all([
+      loadAirportPlanningData(result.departureAirport.ident),
+      loadAirportPlanningData(result.arrivalAirport.ident),
+    ])
+      .then(([departureData, arrivalData]) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setDeparturePlanningData(departureData);
+        setArrivalPlanningData(arrivalData);
+      })
+      .catch((loadError) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setDeparturePlanningData(null);
+        setArrivalPlanningData(null);
+        setPlanningError(loadError instanceof Error ? loadError.message : "Failed to load runway and procedure data");
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [activeCandidate, result]);
+
+  useEffect(() => {
+    if (selectedDepartureRunwayName && selectedDepartureProcedureId) {
+      const stillAvailable = availableDepartureProcedures.some((procedure) => procedure.id === selectedDepartureProcedureId);
+      if (!stillAvailable) {
+        setSelectedDepartureProcedureId(null);
+      }
+    }
+  }, [availableDepartureProcedures, selectedDepartureProcedureId, selectedDepartureRunwayName]);
+
+  useEffect(() => {
+    if (selectedArrivalRunwayName && selectedArrivalProcedureId) {
+      const stillAvailable = availableArrivalStarProcedures.some((procedure) => procedure.id === selectedArrivalProcedureId);
+      if (!stillAvailable) {
+        setSelectedArrivalProcedureId(null);
+      }
+    }
+  }, [availableArrivalStarProcedures, selectedArrivalProcedureId, selectedArrivalRunwayName]);
+
+  useEffect(() => {
+    if (selectedArrivalRunwayName && selectedApproachProcedureId) {
+      const stillAvailable = availableArrivalApproachProcedures.some((procedure) => procedure.id === selectedApproachProcedureId);
+      if (!stillAvailable) {
+        setSelectedApproachProcedureId(null);
+      }
+    }
+  }, [availableArrivalApproachProcedures, selectedApproachProcedureId, selectedArrivalRunwayName]);
+
+  useEffect(() => {
+    if (!planningProcedureSelectionId) {
+      return;
+    }
+
+    if (availableDepartureProcedures.some((procedure) => procedure.id === planningProcedureSelectionId)) {
+      setSelectedDepartureProcedureId(planningProcedureSelectionId);
+      return;
+    }
+
+    if (availableArrivalStarProcedures.some((procedure) => procedure.id === planningProcedureSelectionId)) {
+      setSelectedArrivalProcedureId(planningProcedureSelectionId);
+      return;
+    }
+
+    if (availableArrivalApproachProcedures.some((procedure) => procedure.id === planningProcedureSelectionId)) {
+      setSelectedApproachProcedureId(planningProcedureSelectionId);
+    }
   }, [
-    activeCandidateIndex,
-    onRoutePreviewChange,
-    result,
-    selectedApproachProcedureId,
-    selectedArrivalProcedureId,
-    selectedDepartureProcedureId,
+    availableArrivalApproachProcedures,
+    availableArrivalStarProcedures,
+    availableDepartureProcedures,
+    planningProcedureSelectionId,
   ]);
 
   function activateCandidate(candidate: RoutePlanCandidate, index: number) {
     setActiveCandidateIndex(index);
-    setSelectedDepartureProcedureId(defaultProcedureId(candidate.departure.procedures));
-    setSelectedArrivalProcedureId(defaultProcedureId(candidate.arrival.procedures));
-    setSelectedApproachProcedureId(defaultProcedureId(candidate.approaches));
+    setSelectedDepartureProcedureId(null);
+    setSelectedArrivalProcedureId(null);
+    setSelectedApproachProcedureId(null);
+    setSelectedDepartureRunwayName(null);
+    setSelectedArrivalRunwayName(null);
+    setPlanningError(null);
   }
 
   function clearDisplayedRoute() {
@@ -302,7 +537,12 @@ export function RoutePage({ onRoutePreviewChange }: RoutePageProps) {
     setSelectedDepartureProcedureId(null);
     setSelectedArrivalProcedureId(null);
     setSelectedApproachProcedureId(null);
-    onRoutePreviewChange?.(null);
+    setDeparturePlanningData(null);
+    setArrivalPlanningData(null);
+    setSelectedDepartureRunwayName(null);
+    setSelectedArrivalRunwayName(null);
+    setPlanningError(null);
+    onRoutePreviewChange?.(null, null);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -316,14 +556,14 @@ export function RoutePage({ onRoutePreviewChange }: RoutePageProps) {
     if (!normalizedDeparture || !normalizedArrival) {
       setError("Departure and arrival airport identifiers are required.");
       setResult(null);
-      onRoutePreviewChange?.(null);
+      onRoutePreviewChange?.(null, null);
       return;
     }
 
     if (!Number.isFinite(parsedCruiseAltitude) || parsedCruiseAltitude <= 0) {
       setError("Cruise altitude must be a positive number in feet.");
       setResult(null);
-      onRoutePreviewChange?.(null);
+      onRoutePreviewChange?.(null, null);
       return;
     }
 
@@ -337,7 +577,12 @@ export function RoutePage({ onRoutePreviewChange }: RoutePageProps) {
     setSelectedDepartureProcedureId(null);
     setSelectedArrivalProcedureId(null);
     setSelectedApproachProcedureId(null);
-    onRoutePreviewChange?.(null);
+    setDeparturePlanningData(null);
+    setArrivalPlanningData(null);
+    setSelectedDepartureRunwayName(null);
+    setSelectedArrivalRunwayName(null);
+    setPlanningError(null);
+    onRoutePreviewChange?.(null, null);
 
     try {
       const response = await planRoute({
@@ -368,12 +613,10 @@ export function RoutePage({ onRoutePreviewChange }: RoutePageProps) {
         <p className="section-kicker">Route Planner</p>
         <h1 className="hero-title mt-2 text-[1.7rem] leading-none sm:text-[2rem]">Route Desk</h1>
         <p className="support-copy mt-3 text-sm">
-          Procedure-point driven planning for departure, airway, arrival, and approach selection.
+          Route planning stays first. After you pin one route, continue with runway-first SID, STAR, and approach selection.
         </p>
         <p className="support-copy mt-2 text-sm">
-          Enter cruise altitude, departure airport, and arrival airport. The planner filters
-          legal routes through SID and STAR anchor points first, then leaves runway and final
-          procedure selection to the user.
+          Workflow: select a route candidate, choose departure runway, pick a SID on the map, then choose arrival runway, STAR, and approach in order.
         </p>
 
         <form className="mt-5 grid gap-4" onSubmit={handleSubmit}>
@@ -444,6 +687,7 @@ export function RoutePage({ onRoutePreviewChange }: RoutePageProps) {
         </form>
 
         {error ? <p className="mt-4 text-sm text-rose-300">{error}</p> : null}
+        {planningError ? <p className="mt-2 text-sm text-amber-200">{planningError}</p> : null}
       </div>
 
       {result ? (
@@ -480,6 +724,61 @@ export function RoutePage({ onRoutePreviewChange }: RoutePageProps) {
             </div>
           </div>
 
+          {activeCandidateIndex !== null ? (
+            <div className="grid gap-4 xl:grid-cols-2">
+              <section className="rounded-[22px] border border-emerald-400/16 bg-emerald-400/6 p-5">
+                <p className="m-0 text-[0.72rem] uppercase tracking-[0.28em] text-emerald-200/80">Departure Setup</p>
+                <p className="mt-2 text-sm text-slate-300">
+                  Choose departure runway first. The map will then display all matching SID procedures with names; click a SID on the map to confirm it.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {departureRunwayOptions.map((runway) => (
+                    <ProcedureChip
+                      key={`${runway.runwayName}-${runway.headingDeg}`}
+                      label={`RWY ${runway.runwayName}`}
+                      isActive={selectedDepartureRunwayName === runway.runwayName}
+                      onClick={() => {
+                        setSelectedDepartureRunwayName(runway.runwayName);
+                        setSelectedDepartureProcedureId(null);
+                      }}
+                    />
+                  ))}
+                </div>
+                <p className="mt-4 text-sm text-slate-300">
+                  {selectedDepartureRunwayName
+                    ? `${availableDepartureProcedures.length} SID option(s) are available for RWY ${selectedDepartureRunwayName}.`
+                    : "Select a departure runway to preview matching SID procedures on the map."}
+                </p>
+              </section>
+
+              <section className="rounded-[22px] border border-amber-400/16 bg-amber-400/6 p-5">
+                <p className="m-0 text-[0.72rem] uppercase tracking-[0.28em] text-amber-200/80">Arrival Setup</p>
+                <p className="mt-2 text-sm text-slate-300">
+                  Choose arrival runway first. Then the map will display matching STAR procedures; after a STAR is chosen, approach procedures for that runway will also be available.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {arrivalRunwayOptions.map((runway) => (
+                    <ProcedureChip
+                      key={`${runway.runwayName}-${runway.headingDeg}`}
+                      label={`RWY ${runway.runwayName}`}
+                      isActive={selectedArrivalRunwayName === runway.runwayName}
+                      onClick={() => {
+                        setSelectedArrivalRunwayName(runway.runwayName);
+                        setSelectedArrivalProcedureId(null);
+                        setSelectedApproachProcedureId(null);
+                      }}
+                    />
+                  ))}
+                </div>
+                <p className="mt-4 text-sm text-slate-300">
+                  {selectedArrivalRunwayName
+                    ? `${availableArrivalStarProcedures.length} STAR option(s) and ${availableArrivalApproachProcedures.length} approach option(s) are available for RWY ${selectedArrivalRunwayName}.`
+                    : "Select an arrival runway to preview matching STAR procedures on the map."}
+                </p>
+              </section>
+            </div>
+          ) : null}
+
           {result.candidates.length > 0 ? (
             result.candidates.map((candidate, index) => (
               <CandidateCard
@@ -487,31 +786,10 @@ export function RoutePage({ onRoutePreviewChange }: RoutePageProps) {
                 candidate={candidate}
                 index={index}
                 isActive={activeCandidateIndex === index}
-                selectedDepartureProcedureId={activeCandidateIndex === index ? selectedDepartureProcedureId : null}
-                selectedArrivalProcedureId={activeCandidateIndex === index ? selectedArrivalProcedureId : null}
-                selectedApproachProcedureId={activeCandidateIndex === index ? selectedApproachProcedureId : null}
                 onActivate={() => {
                   if (activeCandidateIndex !== index) {
                     activateCandidate(candidate, index);
                   }
-                }}
-                onDepartureProcedureSelect={(procedureId) => {
-                  if (activeCandidateIndex !== index) {
-                    activateCandidate(candidate, index);
-                  }
-                  setSelectedDepartureProcedureId(procedureId);
-                }}
-                onArrivalProcedureSelect={(procedureId) => {
-                  if (activeCandidateIndex !== index) {
-                    activateCandidate(candidate, index);
-                  }
-                  setSelectedArrivalProcedureId(procedureId);
-                }}
-                onApproachProcedureSelect={(procedureId) => {
-                  if (activeCandidateIndex !== index) {
-                    activateCandidate(candidate, index);
-                  }
-                  setSelectedApproachProcedureId(procedureId);
                 }}
               />
             ))

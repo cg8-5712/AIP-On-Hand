@@ -1,8 +1,14 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import type { Bounds, LatLon, MapLayersResponse, ProcedureGeometryResponse, ProcedureKind } from "../../types/api";
-import type { BasemapTone, MapFocusRequest, RouteMapOverlay } from "../app/types";
+import type {
+  Bounds,
+  LatLon,
+  MapLayersResponse,
+  ProcedureGeometryResponse,
+  ProcedureKind,
+} from "../../types/api";
+import type { BasemapTone, MapFocusRequest, RouteMapOverlay, RoutePlanningOverlay } from "../app/types";
 
 type LayerVisibility = {
   airports: boolean;
@@ -23,6 +29,7 @@ type MapViewProps = {
   selectedAirportIdent: string | null;
   selectedProcedure: ProcedureGeometryResponse | null;
   routeOverlay: RouteMapOverlay | null;
+  routePlanningOverlay: RoutePlanningOverlay | null;
   selectedAirwayPath: LatLon[];
   focusRequest: MapFocusRequest | null;
   basemapTone: BasemapTone;
@@ -30,6 +37,7 @@ type MapViewProps = {
   onViewportChange: (viewport: ViewportState) => void;
   onAirportSelect: (airportIdent: string) => void;
   onFocusRequestHandled: (requestId: number) => void;
+  onPlanningProcedureSelect: (procedureId: number) => void;
 };
 
 const basemapConfig: Record<BasemapTone, { url: string; attribution: string; subdomains?: string }> = {
@@ -575,6 +583,7 @@ export function MapView({
   selectedAirportIdent,
   selectedProcedure,
   routeOverlay,
+  routePlanningOverlay,
   selectedAirwayPath,
   focusRequest,
   basemapTone,
@@ -582,6 +591,7 @@ export function MapView({
   onViewportChange,
   onAirportSelect,
   onFocusRequestHandled,
+  onPlanningProcedureSelect,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -596,6 +606,7 @@ export function MapView({
   const selectedAirportLayerRef = useRef<L.LayerGroup | null>(null);
   const procedureLayerRef = useRef<L.LayerGroup | null>(null);
   const routeOverlayLayerRef = useRef<L.LayerGroup | null>(null);
+  const routePlanningLayerRef = useRef<L.LayerGroup | null>(null);
   const selectedAirwayLayerRef = useRef<L.LayerGroup | null>(null);
   const lastHandledFocusRequestIdRef = useRef<number | null>(null);
 
@@ -642,6 +653,7 @@ export function MapView({
     selectedAirportLayerRef.current = L.layerGroup().addTo(map);
     selectedAirwayLayerRef.current = L.layerGroup().addTo(map);
     routeOverlayLayerRef.current = L.layerGroup().addTo(map);
+    routePlanningLayerRef.current = L.layerGroup().addTo(map);
     procedureLayerRef.current = L.layerGroup().addTo(map);
 
     const publishViewport = () => {
@@ -687,6 +699,7 @@ export function MapView({
       selectedAirwayLayerRef.current = null;
       procedureLayerRef.current = null;
       routeOverlayLayerRef.current = null;
+      routePlanningLayerRef.current = null;
     };
   }, [onViewportChange]);
 
@@ -959,6 +972,59 @@ export function MapView({
 
   useEffect(() => {
     const map = mapRef.current;
+    const routePlanningLayer = routePlanningLayerRef.current;
+
+    if (!map || !routePlanningLayer) {
+      return;
+    }
+
+    routePlanningLayer.clearLayers();
+
+    const planning = routePlanningOverlay ?? routeOverlay?.planning ?? null;
+    if (!planning) {
+      return;
+    }
+
+    if (planning.selectedDepartureRunwayName) {
+      const runway = planning.departureRunways.find((item) => item.runwayName === planning.selectedDepartureRunwayName);
+      if (runway) {
+        renderPlanningRunway(routePlanningLayer, runway, procedurePalette.sid.line);
+      }
+    }
+
+    if (planning.selectedArrivalRunwayName) {
+      const runway = planning.arrivalRunways.find((item) => item.runwayName === planning.selectedArrivalRunwayName);
+      if (runway) {
+        renderPlanningRunway(routePlanningLayer, runway, procedurePalette.star.line);
+      }
+    }
+
+    for (const [group, style] of [
+      [planning.departure, procedurePalette.sid],
+      [planning.arrivalStar, procedurePalette.star],
+      [planning.arrivalApproach, procedurePalette.approach],
+    ] as const) {
+      if (!group) {
+        continue;
+      }
+
+      for (const procedure of group.displayedProcedures) {
+        const isSelected = group.selectedProcedureId === procedure.summary.id;
+        renderSelectableProcedure(
+          map,
+          routePlanningLayer,
+          procedure,
+          style.line,
+          style.point,
+          isSelected,
+          onPlanningProcedureSelect,
+        );
+      }
+    }
+  }, [onPlanningProcedureSelect, routeOverlay?.planning, routePlanningOverlay]);
+
+  useEffect(() => {
+    const map = mapRef.current;
     const selectedAirwayLayer = selectedAirwayLayerRef.current;
 
     if (!map || !selectedAirwayLayer) {
@@ -1107,6 +1173,109 @@ function renderRouteProcedure(
   const path = procedure.path.map((point) => toDisplayLatLng(point.position));
   const missedPath = procedure.missedPath.map((point) => toDisplayLatLng(point.position));
   renderProcedureGeometry(layer, path, missedPath, lineColor, pointColor, false);
+}
+
+function renderPlanningRunway(layer: L.LayerGroup, runway: { headingDeg: number; lengthFt: number; location: LatLon; runwayName: string }, color: string) {
+  const headingRad = (runway.headingDeg * Math.PI) / 180;
+  const halfLengthNm = Math.max(0.35, Math.min(runway.lengthFt / 6076.12 / 2, 3.2));
+  const deltaLat = (Math.cos(headingRad) * halfLengthNm) / 60;
+  const latCos = Math.max(0.15, Math.cos((runway.location.lat * Math.PI) / 180));
+  const deltaLon = (Math.sin(headingRad) * halfLengthNm) / (60 * latCos);
+  const from = {
+    lat: runway.location.lat - deltaLat,
+    lon: runway.location.lon - deltaLon,
+  };
+  const to = {
+    lat: runway.location.lat + deltaLat,
+    lon: runway.location.lon + deltaLon,
+  };
+
+  addWrappedPolyline(layer, [toDisplayLatLng(from), toDisplayLatLng(to)], {
+    color,
+    weight: 6,
+    opacity: 0.8,
+  });
+
+  L.circleMarker(toDisplayLatLng(runway.location), {
+    radius: 4,
+    weight: 2,
+    color,
+    fillColor: "#0f172a",
+    fillOpacity: 0.9,
+  })
+    .bindTooltip(`RWY ${runway.runwayName}`)
+    .addTo(layer);
+}
+
+function renderSelectableProcedure(
+  map: L.Map,
+  layer: L.LayerGroup,
+  procedure: ProcedureGeometryResponse,
+  lineColor: string,
+  pointColor: string,
+  isSelected: boolean,
+  onPlanningProcedureSelect: (procedureId: number) => void,
+) {
+  const path = procedure.path.map((point) => toDisplayLatLng(point.position));
+  const missedPath = procedure.missedPath.map((point) => toDisplayLatLng(point.position));
+  renderProcedureGeometry(layer, path, missedPath, lineColor, pointColor, isSelected);
+
+  const anchorPoint = procedure.path[Math.floor(procedure.path.length / 2)]?.position ?? procedure.path[0]?.position;
+  if (anchorPoint) {
+    const procedureId = procedure.summary.id;
+    L.marker(toDisplayLatLng(anchorPoint), {
+      icon: createProcedureLabelIcon(procedure.summary.name, lineColor, isSelected),
+      keyboard: false,
+      zIndexOffset: isSelected ? 1250 : 1000,
+    })
+      .on("click", () => onPlanningProcedureSelect(procedureId))
+      .addTo(layer);
+  }
+
+  for (const segment of splitWrappedPolyline(path)) {
+    L.polyline(segment, {
+      color: lineColor,
+      weight: isSelected ? 7.4 : 10,
+      opacity: 0.01,
+      interactive: true,
+    })
+      .on("click", () => onPlanningProcedureSelect(procedure.summary.id))
+      .addTo(layer);
+  }
+
+  for (const segment of splitWrappedPolyline(missedPath)) {
+    L.polyline(segment, {
+      color: lineColor,
+      weight: isSelected ? 6.2 : 8.8,
+      opacity: 0.01,
+      interactive: true,
+      dashArray: "10 7",
+    })
+      .on("click", () => onPlanningProcedureSelect(procedure.summary.id))
+      .addTo(layer);
+  }
+
+  void map;
+}
+
+function createProcedureLabelIcon(name: string, color: string, isSelected: boolean) {
+  const safeName = escapeHtml(name);
+  const fontSize = isSelected ? 13 : 12;
+  const horizontalPadding = isSelected ? 12 : 10;
+  const width = Math.max(52, Math.round(safeName.length * (fontSize * 0.62) + horizontalPadding * 2));
+  const height = isSelected ? 24 : 22;
+
+  return L.divIcon({
+    className: "navmap-div-icon navmap-div-icon-procedure-label",
+    html: `
+      <div
+        class="navmap-procedure-label"
+        style="min-width:${width}px;height:${height}px;border:1.5px solid ${color};color:${color};"
+      >${safeName}</div>
+    `,
+    iconSize: [width, height],
+    iconAnchor: [width / 2, height / 2],
+  });
 }
 
 function renderProcedureGeometry(
