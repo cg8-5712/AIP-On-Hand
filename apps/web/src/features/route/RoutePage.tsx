@@ -20,6 +20,11 @@ type CandidateCardProps = {
   index: number;
   isActive: boolean;
   onActivate: () => void;
+  departureSelectionLabel?: string | null;
+  arrivalSelectionLabel?: string | null;
+  approachSelectionLabel?: string | null;
+  approachStatusText?: string | null;
+  approachCountText?: string | null;
 };
 
 type AirportPlanningData = {
@@ -81,6 +86,14 @@ function formatAirwaySequence(segments: RouteAirwaySegment[]) {
   return sequence.join(" ");
 }
 
+function findProcedureSummaryById(procedures: ProcedureSummary[], procedureId: number | null) {
+  if (!procedureId) {
+    return null;
+  }
+
+  return procedures.find((procedure) => procedure.id === procedureId) ?? null;
+}
+
 function defaultProcedureId(procedures: RouteProcedureOption[]) {
   return procedures[0]?.procedureId ?? null;
 }
@@ -138,6 +151,11 @@ function CandidateCard({
   index,
   isActive,
   onActivate,
+  departureSelectionLabel,
+  arrivalSelectionLabel,
+  approachSelectionLabel,
+  approachStatusText,
+  approachCountText,
 }: CandidateCardProps) {
   return (
     <article
@@ -186,9 +204,16 @@ function CandidateCard({
         <section className="rounded-[20px] border border-emerald-400/16 bg-emerald-400/6 p-4">
           <p className="m-0 text-[0.72rem] uppercase tracking-[0.28em] text-emerald-200/80">Departure</p>
           <p className="mt-2 font-mono text-lg text-emerald-100">{candidate.departure.ident}</p>
-          <p className="mt-1 text-sm text-slate-300">
-            SID shortest path {formatDistance(candidate.departure.minimumProcedureDistanceNm)}. Detailed runway and SID selection starts after this route is displayed.
-          </p>
+          {departureSelectionLabel ? (
+            <div className="mt-3 rounded-2xl border border-emerald-300/18 bg-slate-950/45 px-4 py-3">
+              <p className="m-0 text-[0.68rem] uppercase tracking-[0.24em] text-emerald-200/70">Selected SID</p>
+              <p className="mt-2 break-words font-mono text-base text-emerald-50">{departureSelectionLabel}</p>
+            </div>
+          ) : (
+            <p className="mt-1 text-sm text-slate-300">
+              SID shortest path {formatDistance(candidate.departure.minimumProcedureDistanceNm)}. Detailed runway and SID selection starts after this route is displayed.
+            </p>
+          )}
         </section>
 
         <section className="rounded-[20px] border border-sky-400/16 bg-sky-400/6 p-4">
@@ -219,22 +244,39 @@ function CandidateCard({
         <section className="rounded-[20px] border border-amber-400/16 bg-amber-400/6 p-4">
           <p className="m-0 text-[0.72rem] uppercase tracking-[0.28em] text-amber-200/80">Arrival</p>
           <p className="mt-2 font-mono text-lg text-amber-100">{candidate.arrival.ident}</p>
-          <p className="mt-1 text-sm text-slate-300">
-            STAR shortest path {formatDistance(candidate.arrival.minimumProcedureDistanceNm)}. Arrival runway, STAR, and approach are selected after this route is displayed.
-          </p>
+          {arrivalSelectionLabel ? (
+            <div className="mt-3 rounded-2xl border border-amber-300/18 bg-slate-950/45 px-4 py-3">
+              <p className="m-0 text-[0.68rem] uppercase tracking-[0.24em] text-amber-200/70">Selected STAR</p>
+              <p className="mt-2 break-words font-mono text-base text-amber-50">{arrivalSelectionLabel}</p>
+            </div>
+          ) : (
+            <p className="mt-1 text-sm text-slate-300">
+              STAR shortest path {formatDistance(candidate.arrival.minimumProcedureDistanceNm)}. Arrival runway, STAR, and approach are selected after this route is displayed.
+            </p>
+          )}
         </section>
       </div>
 
       <section className="mt-4 rounded-[20px] border border-fuchsia-400/16 bg-fuchsia-400/6 p-4">
         <p className="m-0 text-[0.72rem] uppercase tracking-[0.28em] text-fuchsia-200/80">Approach</p>
-        <p className="mt-2 text-sm text-slate-300">
-          Published approach candidates stay available, but exact approach selection moves to the runway-first arrival workflow.
-        </p>
-        <p className="mt-3 text-sm text-slate-400">
-          {candidate.approaches.length > 0
-            ? `${candidate.approaches.length} published approach option(s) available after arrival runway selection.`
-            : "No published approach candidates were resolved."}
-        </p>
+        {approachSelectionLabel ? (
+          <div className="mt-3 rounded-2xl border border-fuchsia-300/18 bg-slate-950/45 px-4 py-3">
+            <p className="m-0 text-[0.68rem] uppercase tracking-[0.24em] text-fuchsia-200/70">Selected Approach</p>
+            <p className="mt-2 break-words font-mono text-base text-fuchsia-50">{approachSelectionLabel}</p>
+          </div>
+        ) : (
+          <>
+            <p className="mt-2 text-sm text-slate-300">
+              {approachStatusText ?? "Published approach candidates stay available, but exact approach selection moves to the runway-first arrival workflow."}
+            </p>
+            <p className="mt-3 text-sm text-slate-400">
+              {approachCountText ??
+                (candidate.approaches.length > 0
+                  ? `${candidate.approaches.length} published approach option(s) available after arrival runway selection.`
+                  : "No published approach candidates were resolved.")}
+            </p>
+          </>
+        )}
       </section>
     </article>
   );
@@ -313,6 +355,52 @@ export function RoutePage({ onRoutePreviewChange, planningProcedureSelectionId }
     () => availableArrivalApproachProcedures.map((procedure) => procedure.id),
     [availableArrivalApproachProcedures],
   );
+  const selectedDepartureProcedure = useMemo(
+    () => findProcedureSummaryById(availableDepartureProcedures, selectedDepartureProcedureId),
+    [availableDepartureProcedures, selectedDepartureProcedureId],
+  );
+  const selectedArrivalProcedure = useMemo(
+    () => findProcedureSummaryById(availableArrivalStarProcedures, selectedArrivalProcedureId),
+    [availableArrivalStarProcedures, selectedArrivalProcedureId],
+  );
+  const selectedApproachProcedure = useMemo(
+    () => findProcedureSummaryById(availableArrivalApproachProcedures, selectedApproachProcedureId),
+    [availableArrivalApproachProcedures, selectedApproachProcedureId],
+  );
+  const activeApproachStatusText = useMemo(() => {
+    if (selectedApproachProcedure && selectedArrivalRunwayName) {
+      return `Approach locked for RWY ${selectedArrivalRunwayName}.`;
+    }
+
+    if (selectedArrivalProcedure && selectedArrivalRunwayName) {
+      return `STAR ${selectedArrivalProcedure.name} is selected for RWY ${selectedArrivalRunwayName}. Choose an approach on the map next.`;
+    }
+
+    if (selectedArrivalRunwayName) {
+      return `Choose a STAR first. Approach selection for RWY ${selectedArrivalRunwayName} unlocks after a STAR is chosen.`;
+    }
+
+    return "Published approach candidates stay available, but exact approach selection moves to the runway-first arrival workflow.";
+  }, [
+    selectedApproachProcedure,
+    selectedArrivalProcedure,
+    selectedArrivalRunwayName,
+  ]);
+  const activeApproachCountText = useMemo(() => {
+    if (selectedArrivalRunwayName) {
+      return availableArrivalApproachProcedures.length > 0
+        ? `${availableArrivalApproachProcedures.length} approach option(s) are available for RWY ${selectedArrivalRunwayName}.`
+        : `No published approach candidates were resolved for RWY ${selectedArrivalRunwayName}.`;
+    }
+
+    return activeCandidate && activeCandidate.approaches.length > 0
+      ? `${activeCandidate.approaches.length} published approach option(s) available after arrival runway selection.`
+      : "No published approach candidates were resolved.";
+  }, [
+    activeCandidate,
+    availableArrivalApproachProcedures.length,
+    selectedArrivalRunwayName,
+  ]);
   const routePreviewSelection = useMemo<RoutePreviewSelection | null>(
     () =>
       activeCandidate
@@ -749,6 +837,11 @@ export function RoutePage({ onRoutePreviewChange, planningProcedureSelectionId }
                     ? `${availableDepartureProcedures.length} SID option(s) are available for RWY ${selectedDepartureRunwayName}.`
                     : "Select a departure runway to preview matching SID procedures on the map."}
                 </p>
+                {selectedDepartureProcedure ? (
+                  <p className="mt-2 text-sm text-emerald-100">
+                    Selected SID: {selectedDepartureProcedure.name} / RWY {selectedDepartureRunwayName}
+                  </p>
+                ) : null}
               </section>
 
               <section className="rounded-[22px] border border-amber-400/16 bg-amber-400/6 p-5">
@@ -775,6 +868,16 @@ export function RoutePage({ onRoutePreviewChange, planningProcedureSelectionId }
                     ? `${availableArrivalStarProcedures.length} STAR option(s) and ${availableArrivalApproachProcedures.length} approach option(s) are available for RWY ${selectedArrivalRunwayName}.`
                     : "Select an arrival runway to preview matching STAR procedures on the map."}
                 </p>
+                {selectedArrivalProcedure ? (
+                  <p className="mt-2 text-sm text-amber-100">
+                    Selected STAR: {selectedArrivalProcedure.name} / RWY {selectedArrivalRunwayName}
+                  </p>
+                ) : null}
+                {selectedApproachProcedure ? (
+                  <p className="mt-2 text-sm text-fuchsia-100">
+                    Selected approach: {selectedApproachProcedure.name} / RWY {selectedArrivalRunwayName}
+                  </p>
+                ) : null}
               </section>
             </div>
           ) : null}
@@ -786,6 +889,23 @@ export function RoutePage({ onRoutePreviewChange, planningProcedureSelectionId }
                 candidate={candidate}
                 index={index}
                 isActive={activeCandidateIndex === index}
+                departureSelectionLabel={
+                  activeCandidateIndex === index && selectedDepartureProcedure && selectedDepartureRunwayName
+                    ? `${selectedDepartureProcedure.name} / RWY ${selectedDepartureRunwayName}`
+                    : null
+                }
+                arrivalSelectionLabel={
+                  activeCandidateIndex === index && selectedArrivalProcedure && selectedArrivalRunwayName
+                    ? `${selectedArrivalProcedure.name} / RWY ${selectedArrivalRunwayName}`
+                    : null
+                }
+                approachSelectionLabel={
+                  activeCandidateIndex === index && selectedApproachProcedure && selectedArrivalRunwayName
+                    ? `${selectedApproachProcedure.name} / RWY ${selectedArrivalRunwayName}`
+                    : null
+                }
+                approachStatusText={activeCandidateIndex === index ? activeApproachStatusText : null}
+                approachCountText={activeCandidateIndex === index ? activeApproachCountText : null}
                 onActivate={() => {
                   if (activeCandidateIndex !== index) {
                     activateCandidate(candidate, index);
