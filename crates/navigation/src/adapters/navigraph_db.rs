@@ -396,12 +396,21 @@ fn load_metadata(connection: &Connection) -> Result<NavDbMetadata> {
     )
 }
 
+fn query_crosses_antimeridian(query: LayerQuery) -> bool {
+    query.west > query.east
+}
+
 fn query_airports(
     connection: &Connection,
     query: LayerQuery,
     limit: i64,
 ) -> Result<Vec<AirportFeature>> {
-    let mut statement = connection.prepare(
+    let where_lon = if query_crosses_antimeridian(query) {
+        "(right_lonx >= ?1 or left_lonx <= ?2)"
+    } else {
+        "right_lonx >= ?1 and left_lonx <= ?2"
+    };
+    let sql = format!(
         "
         select
           airport_id,
@@ -416,14 +425,14 @@ fn query_airports(
         from airport
         where
           is_closed = 0
-          and right_lonx >= ?1
-          and left_lonx <= ?2
+          and {where_lon}
           and top_laty >= ?3
           and bottom_laty <= ?4
         order by num_approach desc, longest_runway_length desc, ident asc
         limit ?5
-        ",
-    )?;
+        "
+    );
+    let mut statement = connection.prepare(&sql)?;
 
     let rows = statement.query_map(
         params![query.west, query.east, query.south, query.north, limit],
@@ -454,7 +463,12 @@ fn query_waypoints(
     query: LayerQuery,
     limit: i64,
 ) -> Result<Vec<WaypointFeature>> {
-    let mut statement = connection.prepare(
+    let where_lon = if query_crosses_antimeridian(query) {
+        "(lonx >= ?1 or lonx <= ?2)"
+    } else {
+        "lonx between ?1 and ?2"
+    };
+    let sql = format!(
         "
         select
           waypoint_id,
@@ -468,12 +482,13 @@ fn query_waypoints(
           laty
         from waypoint
         where
-          lonx between ?1 and ?2
+          {where_lon}
           and laty between ?3 and ?4
         order by (num_victor_airway + num_jet_airway) desc, ident asc
         limit ?5
-        ",
-    )?;
+        "
+    );
+    let mut statement = connection.prepare(&sql)?;
 
     let rows = statement.query_map(
         params![query.west, query.east, query.south, query.north, limit],
@@ -505,7 +520,12 @@ fn query_vors(
     query: LayerQuery,
     limit: i64,
 ) -> Result<Vec<NavaidFeature>> {
-    let mut statement = connection.prepare(
+    let where_lon = if query_crosses_antimeridian(query) {
+        "(lonx >= ?1 or lonx <= ?2)"
+    } else {
+        "lonx between ?1 and ?2"
+    };
+    let sql = format!(
         "
         select
           vor_id,
@@ -517,12 +537,13 @@ fn query_vors(
           laty
         from vor
         where
-          lonx between ?1 and ?2
+          {where_lon}
           and laty between ?3 and ?4
         order by ident asc
         limit ?5
-        ",
-    )?;
+        "
+    );
+    let mut statement = connection.prepare(&sql)?;
 
     let rows = statement.query_map(
         params![query.west, query.east, query.south, query.north, limit],
@@ -552,7 +573,12 @@ fn query_ndbs(
     query: LayerQuery,
     limit: i64,
 ) -> Result<Vec<NavaidFeature>> {
-    let mut statement = connection.prepare(
+    let where_lon = if query_crosses_antimeridian(query) {
+        "(lonx >= ?1 or lonx <= ?2)"
+    } else {
+        "lonx between ?1 and ?2"
+    };
+    let sql = format!(
         "
         select
           ndb_id,
@@ -564,12 +590,13 @@ fn query_ndbs(
           laty
         from ndb
         where
-          lonx between ?1 and ?2
+          {where_lon}
           and laty between ?3 and ?4
         order by ident asc
         limit ?5
-        ",
-    )?;
+        "
+    );
+    let mut statement = connection.prepare(&sql)?;
 
     let rows = statement.query_map(
         params![query.west, query.east, query.south, query.north, limit],
@@ -599,7 +626,12 @@ fn query_airways(
     query: LayerQuery,
     limit: i64,
 ) -> Result<Vec<AirwayFeature>> {
-    let mut statement = connection.prepare(
+    let where_lon = if query_crosses_antimeridian(query) {
+        "(right_lonx >= ?1 or left_lonx <= ?2)"
+    } else {
+        "right_lonx >= ?1 and left_lonx <= ?2"
+    };
+    let sql = format!(
         "
         select
           airway_id,
@@ -615,14 +647,14 @@ fn query_airways(
           to_laty
         from airway
         where
-          right_lonx >= ?1
-          and left_lonx <= ?2
+          {where_lon}
           and top_laty >= ?3
           and bottom_laty <= ?4
         order by airway_type asc, airway_name asc, sequence_no asc
         limit ?5
-        ",
-    )?;
+        "
+    );
+    let mut statement = connection.prepare(&sql)?;
 
     let rows = statement.query_map(
         params![query.west, query.east, query.south, query.north, limit],

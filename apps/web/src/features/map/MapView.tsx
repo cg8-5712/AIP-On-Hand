@@ -93,8 +93,13 @@ const ndbSymbolSvg = `
 
 const routeOverlayLineColor = "#3f5a8a";
 const routeOverlayPointColor = "#e0f2fe";
-const asiaDefaultCenter: L.LatLngTuple = [35.8617, 104.1954];
+const asiaDefaultCenter = {
+  lat: 35.8617,
+  lon: 104.1954,
+} as const;
 const asiaDefaultZoom = 5;
+const singleWorldMinZoom = 1;
+const pacificLongitudeOffset = 180;
 const worldBounds = L.latLngBounds(
   [-85, -180] as L.LatLngTuple,
   [85, 180] as L.LatLngTuple,
@@ -127,13 +132,125 @@ type AirwayLabelSegment = {
   to: LatLon;
 };
 
-function singleWorldMinZoom(viewportWidthPx: number, centerLon: number) {
-  const safeViewportWidthPx = Math.max(1, viewportWidthPx);
-  const visibleLongitudeMargin = Math.max(1, Math.min(centerLon + 180, 180 - centerLon));
-  const requiredScale = (safeViewportWidthPx * 180) / (256 * visibleLongitudeMargin);
-  const rawZoom = Math.log2(Math.max(1, requiredScale));
+function normalizeLongitude(lon: number) {
+  const normalized = ((((lon + 180) % 360) + 360) % 360) - 180;
 
-  return Math.max(3, Math.ceil(rawZoom * 4) / 4);
+  if (normalized === -180 && lon > 0) {
+    return 180;
+  }
+
+  return normalized;
+}
+
+function toDisplayLongitude(lon: number) {
+  return normalizeLongitude(lon - pacificLongitudeOffset);
+}
+
+function fromDisplayLongitude(displayLon: number) {
+  return normalizeLongitude(displayLon + pacificLongitudeOffset);
+}
+
+function toDisplayLatLng(point: LatLon): L.LatLngTuple {
+  return [point.lat, toDisplayLongitude(point.lon)];
+}
+
+function toDisplayTuple(lat: number, lon: number): L.LatLngTuple {
+  return [lat, toDisplayLongitude(lon)];
+}
+
+function viewportBoundsFromDisplay(bounds: L.LatLngBounds): Bounds {
+  const west = bounds.getWest();
+  const east = bounds.getEast();
+  const south = Math.max(bounds.getSouth(), -85);
+  const north = Math.min(bounds.getNorth(), 85);
+
+  if (east - west >= 359.5) {
+    return {
+      west: -180,
+      south,
+      east: 180,
+      north,
+    };
+  }
+
+  return {
+    west: fromDisplayLongitude(west),
+    south,
+    east: fromDisplayLongitude(east),
+    north,
+  };
+}
+
+function unwrapDisplayPolyline(points: L.LatLngTuple[]) {
+  if (points.length <= 1) {
+    return [...points];
+  }
+
+  const unwrapped: L.LatLngTuple[] = [points[0]];
+
+  for (const [lat, lon] of points.slice(1)) {
+    let adjustedLon = lon;
+    const [, previousLon] = unwrapped[unwrapped.length - 1];
+
+    while (adjustedLon - previousLon > 180) {
+      adjustedLon -= 360;
+    }
+
+    while (adjustedLon - previousLon < -180) {
+      adjustedLon += 360;
+    }
+
+    unwrapped.push([lat, adjustedLon]);
+  }
+
+  return unwrapped;
+}
+
+function splitWrappedPolyline(points: L.LatLngTuple[]) {
+  if (points.length === 0) {
+    return [];
+  }
+
+  if (points.length === 1) {
+    return [[points[0]]];
+  }
+
+  const unwrapped = unwrapDisplayPolyline(points);
+  const segments: L.LatLngTuple[][] = [[[unwrapped[0][0], normalizeLongitude(unwrapped[0][1])]]];
+
+  for (let index = 1; index < unwrapped.length; index += 1) {
+    const [previousLat, previousLon] = unwrapped[index - 1];
+    const [nextLat, nextLon] = unwrapped[index];
+    const currentSegment = segments[segments.length - 1];
+
+    if (Math.abs(nextLon - previousLon) <= 180 && nextLon >= -180 && nextLon <= 180) {
+      currentSegment.push([nextLat, normalizeLongitude(nextLon)]);
+      continue;
+    }
+
+    const seamLon = nextLon > previousLon ? 180 : -180;
+    const wrappedSeamLon = seamLon === 180 ? -180 : 180;
+    const ratio = (seamLon - previousLon) / (nextLon - previousLon);
+    const seamLat = previousLat + (nextLat - previousLat) * ratio;
+
+    currentSegment.push([seamLat, seamLon]);
+    segments.push([
+      [seamLat, wrappedSeamLon],
+      [nextLat, normalizeLongitude(nextLon)],
+    ]);
+  }
+
+  return segments.filter((segment) => segment.length > 1);
+}
+
+function addWrappedPolyline(layer: L.LayerGroup, points: L.LatLngTuple[], options: L.PolylineOptions) {
+  for (const segment of splitWrappedPolyline(points)) {
+    L.polyline(segment, options).addTo(layer);
+  }
+}
+
+function displayBoundsForPoints(points: LatLon[]) {
+  return L.latLngBounds(unwrapDisplayPolyline(points.map(toDisplayLatLng)).map(([lat, lon]) => L.latLng(lat, lon)));
 }
 
 function createBasemapLayer(tone: BasemapTone) {
@@ -149,7 +266,19 @@ function createBasemapLayer(tone: BasemapTone) {
     options.subdomains = config.subdomains;
   }
 
-  return L.tileLayer(config.url, options);
+  const layer = L.tileLayer(config.url, options);
+  const originalGetTileUrl = layer.getTileUrl.bind(layer);
+
+  layer.getTileUrl = (coords: L.Coords) => {
+    const worldWidth = 1 << coords.z;
+    const shiftedX = (((coords.x + worldWidth / 2) % worldWidth) + worldWidth) % worldWidth;
+    const shiftedCoords = new L.Point(shiftedX, coords.y) as L.Coords;
+    shiftedCoords.z = coords.z;
+
+    return originalGetTileUrl(shiftedCoords);
+  };
+
+  return layer;
 }
 
 function escapeHtml(value: string) {
@@ -223,8 +352,8 @@ function airwayLabelOrientation(
 ) {
   // Use projected pixel coordinates to calculate angle, ensuring label aligns with rendered line
   const zoom = map.getZoom();
-  const fromPoint = map.project([from.lat, from.lon], zoom);
-  const toPoint = map.project([to.lat, to.lon], zoom);
+  const fromPoint = map.project(toDisplayLatLng(from), zoom);
+  const toPoint = map.project(toDisplayLatLng(to), zoom);
 
   const dx = toPoint.x - fromPoint.x;
   const dy = toPoint.y - fromPoint.y;
@@ -337,7 +466,7 @@ function addAirwayLabel(
   const { rotationDeg, labelDirection } = airwayLabelOrientation(map, from, to, direction);
   const anchor = midpoint(from, to);
 
-  L.marker([anchor.lat, anchor.lon], {
+  L.marker(toDisplayLatLng(anchor), {
     icon: createAirwayLabelIcon(airwayName, lineColor, rotationDeg, labelDirection, emphasized),
     interactive: false,
     keyboard: false,
@@ -406,7 +535,7 @@ function selectAirwayLabelSegments<T extends AirwayLabelSegment>(
   const bounds = map.getBounds().pad(0.08);
   const collapsedRuns = collapseAirwayRuns(segments).filter((segment) => {
     const anchor = midpoint(segment.from, segment.to);
-    return bounds.contains([anchor.lat, anchor.lon]);
+    return bounds.contains(toDisplayLatLng(anchor));
   });
   const candidateRuns = uniqueByAirwayName ? dedupeAirwayNames(collapsedRuns) : collapsedRuns;
   const runs = candidateRuns
@@ -423,7 +552,7 @@ function selectAirwayLabelSegments<T extends AirwayLabelSegment>(
 
   for (const segment of runs) {
     const anchor = midpoint(segment.from, segment.to);
-    const projectedAnchor = map.project([anchor.lat, anchor.lon], zoom);
+    const projectedAnchor = map.project(toDisplayLatLng(anchor), zoom);
 
     if (acceptedPoints.some((point) => point.distanceTo(projectedAnchor) < minPixelSpacing)) {
       continue;
@@ -477,16 +606,15 @@ export function MapView({
 
     delete (containerRef.current as HTMLDivElement & { _leaflet_id?: number })._leaflet_id;
 
-    const minimumZoom = singleWorldMinZoom(containerRef.current.clientWidth, asiaDefaultCenter[1]);
     const map = L.map(containerRef.current, {
       zoomControl: false,
       attributionControl: false,
       worldCopyJump: false,
       maxBounds: worldBounds,
       maxBoundsViscosity: 1,
-      minZoom: minimumZoom,
+      minZoom: singleWorldMinZoom,
       zoomSnap: 0.25,
-    }).setView(asiaDefaultCenter, Math.max(asiaDefaultZoom, minimumZoom));
+    }).setView(toDisplayTuple(asiaDefaultCenter.lat, asiaDefaultCenter.lon), asiaDefaultZoom);
 
     L.control
       .zoom({
@@ -517,14 +645,9 @@ export function MapView({
     procedureLayerRef.current = L.layerGroup().addTo(map);
 
     const publishViewport = () => {
-      const bounds = map.getBounds();
+      const bounds = viewportBoundsFromDisplay(map.getBounds());
       onViewportChange({
-        bounds: {
-          west: bounds.getWest(),
-          south: bounds.getSouth(),
-          east: bounds.getEast(),
-          north: bounds.getNorth(),
-        },
+        bounds,
         zoom: map.getZoom(),
       });
     };
@@ -536,21 +659,6 @@ export function MapView({
       typeof ResizeObserver === "undefined"
         ? null
         : new ResizeObserver(() => {
-            const nextMinimumZoom = singleWorldMinZoom(
-              containerRef.current?.clientWidth ?? 0,
-              asiaDefaultCenter[1],
-            );
-
-            if (map.getMinZoom() !== nextMinimumZoom) {
-              map.setMinZoom(nextMinimumZoom);
-            }
-
-            if (map.getZoom() < nextMinimumZoom) {
-              map.setZoom(nextMinimumZoom, {
-                animate: false,
-              });
-            }
-
             map.invalidateSize({
               animate: false,
             });
@@ -631,17 +739,11 @@ export function MapView({
       for (const airway of layers.airways) {
         const color = airwayLineColor(airway.airwayType);
 
-        L.polyline(
-          [
-            [airway.from.lat, airway.from.lon],
-            [airway.to.lat, airway.to.lon],
-          ],
-          {
-            color,
-            weight: 1.35,
-            opacity: 0.62,
-          },
-        ).addTo(airwayLayer);
+        addWrappedPolyline(airwayLayer, [toDisplayLatLng(airway.from), toDisplayLatLng(airway.to)], {
+          color,
+          weight: 1.35,
+          opacity: 0.62,
+        });
       }
 
       /*
@@ -680,7 +782,7 @@ export function MapView({
           continue;
         }
 
-        L.marker([waypoint.location.lat, waypoint.location.lon], {
+        L.marker(toDisplayLatLng(waypoint.location), {
           icon: createSymbolIcon("waypoint", waypointSymbolSvg),
           keyboard: false,
         })
@@ -693,7 +795,7 @@ export function MapView({
 
     if (visibility.vors) {
       for (const vor of layers.vors) {
-        L.marker([vor.location.lat, vor.location.lon], {
+        L.marker(toDisplayLatLng(vor.location), {
           icon: createSymbolIcon("vor", vorSymbolSvg),
           keyboard: false,
         })
@@ -704,7 +806,7 @@ export function MapView({
 
     if (visibility.ndbs) {
       for (const ndb of layers.ndbs) {
-        L.marker([ndb.location.lat, ndb.location.lon], {
+        L.marker(toDisplayLatLng(ndb.location), {
           icon: createSymbolIcon("ndb", ndbSymbolSvg),
           keyboard: false,
         })
@@ -717,7 +819,7 @@ export function MapView({
       const showAirportLabels = layers.airports.length < 200;
 
       for (const airport of layers.airports) {
-        const marker = L.marker([airport.location.lat, airport.location.lon], {
+        const marker = L.marker(toDisplayLatLng(airport.location), {
           icon: createSymbolIcon(
             "airport",
             airportSymbolSvg,
@@ -730,7 +832,7 @@ export function MapView({
           .addTo(airportLayer);
 
         if (airport.ident === selectedAirportIdent) {
-          L.circleMarker([airport.location.lat, airport.location.lon], {
+          L.circleMarker(toDisplayLatLng(airport.location), {
             radius: 12,
             weight: 3,
             color: "#22d3ee",
@@ -760,9 +862,9 @@ export function MapView({
       return;
     }
 
-    const path = selectedProcedure.path.map((point) => [point.position.lat, point.position.lon] as L.LatLngTuple);
+    const path = selectedProcedure.path.map((point) => toDisplayLatLng(point.position));
     const missedPath = selectedProcedure.missedPath.map(
-      (point) => [point.position.lat, point.position.lon] as L.LatLngTuple,
+      (point) => toDisplayLatLng(point.position),
     );
     const style = procedurePalette[selectedProcedure.summary.procedureKind];
     renderProcedureGeometry(procedureLayer, path, missedPath, style.line, style.point, true);
@@ -784,19 +886,19 @@ export function MapView({
 
     const airwayPath = routeOverlay.selection.candidate.airways.flatMap((segment, index) => {
       const points = [
-        [segment.from.lat, segment.from.lon] as L.LatLngTuple,
-        [segment.to.lat, segment.to.lon] as L.LatLngTuple,
+        toDisplayLatLng(segment.from),
+        toDisplayLatLng(segment.to),
       ];
 
       return index === 0 ? points : points.slice(1);
     });
 
     if (airwayPath.length > 1) {
-      L.polyline(airwayPath, {
+      addWrappedPolyline(routeOverlayLayer, airwayPath, {
         color: routeOverlayLineColor,
         weight: 7,
         opacity: 0.95,
-      }).addTo(routeOverlayLayer);
+      });
     }
 
     for (const point of airwayPath) {
@@ -869,19 +971,19 @@ export function MapView({
       return;
     }
 
-    const airwayPath = selectedAirwayPath.map((point) => [point.lat, point.lon] as L.LatLngTuple);
+    const airwayPath = selectedAirwayPath.map(toDisplayLatLng);
 
-    L.polyline(airwayPath, {
+    addWrappedPolyline(selectedAirwayLayer, airwayPath, {
       color: "#fef3c7",
       weight: 9,
       opacity: 0.72,
-    }).addTo(selectedAirwayLayer);
+    });
 
-    L.polyline(airwayPath, {
+    addWrappedPolyline(selectedAirwayLayer, airwayPath, {
       color: "#f59e0b",
       weight: 5.6,
       opacity: 0.96,
-    }).addTo(selectedAirwayLayer);
+    });
 
     const uniquePoints = new Set<string>();
     for (const point of selectedAirwayPath) {
@@ -890,7 +992,7 @@ export function MapView({
 
     for (const pointKey of uniquePoints) {
       const [lat, lon] = pointKey.split(",").map(Number);
-      L.circleMarker([lat, lon], {
+      L.circleMarker(toDisplayTuple(lat, lon), {
         radius: 4.4,
         weight: 0,
         color: "#fef3c7",
@@ -898,7 +1000,7 @@ export function MapView({
         fillOpacity: 0.72,
       }).addTo(selectedAirwayLayer);
 
-      L.circleMarker([lat, lon], {
+      L.circleMarker(toDisplayTuple(lat, lon), {
         radius: 3.2,
         weight: 2,
         color: "#fef3c7",
@@ -916,12 +1018,13 @@ export function MapView({
     }
 
     if (focusRequest.kind === "location") {
+      const displayLocation = toDisplayLatLng(focusRequest.location);
       if (focusRequest.preserveZoom) {
-        map.panTo([focusRequest.location.lat, focusRequest.location.lon], {
+        map.panTo(displayLocation, {
           animate: true,
         });
       } else {
-        map.flyTo([focusRequest.location.lat, focusRequest.location.lon], focusRequest.zoom ?? 10, {
+        map.flyTo(displayLocation, focusRequest.zoom ?? 10, {
           animate: true,
           duration: 0.85,
         });
@@ -940,17 +1043,14 @@ export function MapView({
 
       if (focusRequest.points.length === 1) {
         const [point] = focusRequest.points;
-        map.flyTo([point.lat, point.lon], 10, {
+        map.flyTo(toDisplayLatLng(point), 10, {
           animate: true,
           duration: 0.85,
         });
       } else {
-        map.fitBounds(
-          L.latLngBounds(focusRequest.points.map((point) => [point.lat, point.lon] as L.LatLngTuple)).pad(0.25),
-          {
-            animate: true,
-          },
-        );
+        map.fitBounds(displayBoundsForPoints(focusRequest.points).pad(0.25), {
+          animate: true,
+        });
       }
 
       lastHandledFocusRequestIdRef.current = focusRequest.requestId;
@@ -962,9 +1062,7 @@ export function MapView({
       return;
     }
 
-    const procedurePoints = [...selectedProcedure.path, ...selectedProcedure.missedPath].map(
-      (point) => [point.position.lat, point.position.lon] as L.LatLngTuple,
-    );
+    const procedurePoints = [...selectedProcedure.path, ...selectedProcedure.missedPath].map((point) => point.position);
 
     if (procedurePoints.length === 0) {
       lastHandledFocusRequestIdRef.current = focusRequest.requestId;
@@ -974,12 +1072,12 @@ export function MapView({
 
     if (procedurePoints.length === 1) {
       const [point] = procedurePoints;
-      map.flyTo(point, 10, {
+      map.flyTo(toDisplayLatLng(point), 10, {
         animate: true,
         duration: 0.85,
       });
     } else {
-      map.fitBounds(L.latLngBounds(procedurePoints).pad(0.25), {
+      map.fitBounds(displayBoundsForPoints(procedurePoints).pad(0.25), {
         animate: true,
       });
     }
@@ -1006,8 +1104,8 @@ function renderRouteProcedure(
     return;
   }
 
-  const path = procedure.path.map((point) => [point.position.lat, point.position.lon] as L.LatLngTuple);
-  const missedPath = procedure.missedPath.map((point) => [point.position.lat, point.position.lon] as L.LatLngTuple);
+  const path = procedure.path.map((point) => toDisplayLatLng(point.position));
+  const missedPath = procedure.missedPath.map((point) => toDisplayLatLng(point.position));
   renderProcedureGeometry(layer, path, missedPath, lineColor, pointColor, false);
 }
 
