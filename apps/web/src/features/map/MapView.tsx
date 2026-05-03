@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import type { Bounds, MapLayersResponse, ProcedureGeometryResponse } from "../../types/api";
+import type { Bounds, MapLayersResponse, ProcedureGeometryResponse, ProcedureKind } from "../../types/api";
 import type { BasemapTone, MapFocusRequest, RouteMapOverlay } from "../app/types";
 
 type LayerVisibility = {
@@ -89,6 +89,20 @@ const ndbSymbolSvg = `
     <circle cx="12" cy="12" r="1.35" fill="#58b947" />
   </svg>
 `;
+
+const routeOverlayLineColor = "#3f5a8a";
+const routeOverlayPointColor = "#e0f2fe";
+const airwayLineColors = {
+  J: "#3f5a8a",
+  V: "#67e8f9",
+  default: "#8ecae6",
+} as const;
+const procedurePalette: Record<ProcedureKind, { line: string; point: string }> = {
+  sid: { line: "#34d399", point: "#bbf7d0" },
+  star: { line: "#f59e0b", point: "#fde68a" },
+  approach: { line: "#e879f9", point: "#f5d0fe" },
+  procedure: { line: "#94a3b8", point: "#e2e8f0" },
+};
 
 function createBasemapLayer(tone: BasemapTone) {
   const config = basemapConfig[tone];
@@ -197,8 +211,8 @@ export function MapView({
     ndbLayerRef.current = L.layerGroup().addTo(map);
     airportLayerRef.current = L.layerGroup().addTo(map);
     selectedAirportLayerRef.current = L.layerGroup().addTo(map);
-    procedureLayerRef.current = L.layerGroup().addTo(map);
     routeOverlayLayerRef.current = L.layerGroup().addTo(map);
+    procedureLayerRef.current = L.layerGroup().addTo(map);
 
     const publishViewport = () => {
       const bounds = map.getBounds();
@@ -303,7 +317,12 @@ export function MapView({
             [airway.to.lat, airway.to.lon],
           ],
           {
-            color: airway.airwayType === "J" ? "#5eead4" : airway.airwayType === "V" ? "#38bdf8" : "#67e8f9",
+            color:
+              airway.airwayType === "J"
+                ? airwayLineColors.J
+                : airway.airwayType === "V"
+                  ? airwayLineColors.V
+                  : airwayLineColors.default,
             weight: 1.35,
             opacity: 0.62,
           },
@@ -405,35 +424,8 @@ export function MapView({
     const missedPath = selectedProcedure.missedPath.map(
       (point) => [point.position.lat, point.position.lon] as L.LatLngTuple,
     );
-
-    if (path.length > 1) {
-      L.polyline(path, {
-        color: "#f97316",
-        weight: 4.2,
-        opacity: 0.95,
-      }).addTo(procedureLayer);
-    }
-
-    if (missedPath.length > 1) {
-      L.polyline(missedPath, {
-        color: "#fb7185",
-        weight: 3.2,
-        opacity: 0.9,
-        dashArray: "10 8",
-      }).addTo(procedureLayer);
-    }
-
-    const highlightedPoints = [...path, ...missedPath];
-
-    for (const point of highlightedPoints) {
-      L.circleMarker(point, {
-        radius: 4.2,
-        weight: 2,
-        color: "#fde68a",
-        fillColor: "#f97316",
-        fillOpacity: 0.95,
-      }).addTo(procedureLayer);
-    }
+    const style = procedurePalette[selectedProcedure.summary.procedureKind];
+    renderProcedureGeometry(procedureLayer, path, missedPath, style.line, style.point, true);
   }, [selectedProcedure]);
 
   useEffect(() => {
@@ -460,8 +452,8 @@ export function MapView({
 
     if (airwayPath.length > 1) {
       L.polyline(airwayPath, {
-        color: "#67e8f9",
-        weight: 4.8,
+        color: routeOverlayLineColor,
+        weight: 7,
         opacity: 0.95,
       }).addTo(routeOverlayLayer);
     }
@@ -470,15 +462,30 @@ export function MapView({
       L.circleMarker(point, {
         radius: 4.5,
         weight: 2,
-        color: "#e0f2fe",
-        fillColor: "#22d3ee",
+        color: routeOverlayPointColor,
+        fillColor: routeOverlayLineColor,
         fillOpacity: 0.95,
       }).addTo(routeOverlayLayer);
     }
 
-    renderRouteProcedure(routeOverlayLayer, routeOverlay.departureProcedure, "#34d399", "#bbf7d0");
-    renderRouteProcedure(routeOverlayLayer, routeOverlay.arrivalProcedure, "#f59e0b", "#fde68a");
-    renderRouteProcedure(routeOverlayLayer, routeOverlay.approachProcedure, "#e879f9", "#f5d0fe");
+    renderRouteProcedure(
+      routeOverlayLayer,
+      routeOverlay.departureProcedure,
+      procedurePalette.sid.line,
+      procedurePalette.sid.point,
+    );
+    renderRouteProcedure(
+      routeOverlayLayer,
+      routeOverlay.arrivalProcedure,
+      procedurePalette.star.line,
+      procedurePalette.star.point,
+    );
+    renderRouteProcedure(
+      routeOverlayLayer,
+      routeOverlay.approachProcedure,
+      procedurePalette.approach.line,
+      procedurePalette.approach.point,
+    );
   }, [routeOverlay]);
 
   useEffect(() => {
@@ -581,31 +588,69 @@ function renderRouteProcedure(
 
   const path = procedure.path.map((point) => [point.position.lat, point.position.lon] as L.LatLngTuple);
   const missedPath = procedure.missedPath.map((point) => [point.position.lat, point.position.lon] as L.LatLngTuple);
+  renderProcedureGeometry(layer, path, missedPath, lineColor, pointColor, false);
+}
+
+function renderProcedureGeometry(
+  layer: L.LayerGroup,
+  path: L.LatLngTuple[],
+  missedPath: L.LatLngTuple[],
+  lineColor: string,
+  pointColor: string,
+  isSelected: boolean,
+) {
+  const primaryWeight = isSelected ? 6.2 : 4.6;
+  const missedWeight = isSelected ? 4.8 : 3.4;
+  const outlineWeight = isSelected ? primaryWeight + 4 : primaryWeight + 1.8;
+  const missedOutlineWeight = isSelected ? missedWeight + 3.2 : missedWeight + 1.4;
+  const pointRadius = isSelected ? 6.2 : 4.4;
+  const pointWeight = isSelected ? 2.6 : 2;
 
   if (path.length > 1) {
     L.polyline(path, {
+      color: pointColor,
+      weight: outlineWeight,
+      opacity: isSelected ? 0.86 : 0.48,
+    }).addTo(layer);
+
+    L.polyline(path, {
       color: lineColor,
-      weight: 4,
-      opacity: 0.92,
+      weight: primaryWeight,
+      opacity: 0.96,
     }).addTo(layer);
   }
 
   if (missedPath.length > 1) {
     L.polyline(missedPath, {
+      color: pointColor,
+      weight: missedOutlineWeight,
+      opacity: isSelected ? 0.72 : 0.4,
+      dashArray: isSelected ? "12 8" : "10 7",
+    }).addTo(layer);
+
+    L.polyline(missedPath, {
       color: lineColor,
-      weight: 3,
-      opacity: 0.78,
-      dashArray: "8 6",
+      weight: missedWeight,
+      opacity: isSelected ? 0.9 : 0.82,
+      dashArray: isSelected ? "12 8" : "10 7",
     }).addTo(layer);
   }
 
   for (const point of [...path, ...missedPath]) {
     L.circleMarker(point, {
-      radius: 4,
-      weight: 2,
+      radius: pointRadius + (isSelected ? 1.4 : 0.8),
+      weight: 0,
+      color: pointColor,
+      fillColor: pointColor,
+      fillOpacity: isSelected ? 0.75 : 0.42,
+    }).addTo(layer);
+
+    L.circleMarker(point, {
+      radius: pointRadius,
+      weight: pointWeight,
       color: pointColor,
       fillColor: lineColor,
-      fillOpacity: 0.92,
+      fillOpacity: 0.96,
     }).addTo(layer);
   }
 }
