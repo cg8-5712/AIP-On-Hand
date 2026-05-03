@@ -96,7 +96,7 @@ struct MapLayersQuery {
     south: f64,
     east: f64,
     north: f64,
-    zoom: i64,
+    zoom: f64,
     airports: Option<bool>,
     waypoints: Option<bool>,
     vors: Option<bool>,
@@ -440,6 +440,13 @@ async fn map_layers(
     state: Data<AppState>,
     query: Query<MapLayersQuery>,
 ) -> Result<Json<aip_domain::MapLayersResponse>, ApiError> {
+    if !query.zoom.is_finite() {
+        return Err(ApiError::BadRequest(
+            "zoom query parameter must be a finite number".to_string(),
+        ));
+    }
+
+    let zoom = query.zoom.round().clamp(0.0, 24.0) as i64;
     let payload = state
         .nav_db
         .load_layers(LayerQuery {
@@ -447,7 +454,7 @@ async fn map_layers(
             south: query.south,
             east: query.east,
             north: query.north,
-            zoom: query.zoom,
+            zoom,
             include_airports: query.airports.unwrap_or(true),
             include_waypoints: query.waypoints.unwrap_or(true),
             include_vors: query.vors.unwrap_or(true),

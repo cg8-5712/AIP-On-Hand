@@ -219,13 +219,20 @@ export function getEaipChartContentUrl(chartId: string) {
 
 export function getMapLayers(bounds: Bounds, options: LayerRequestOptions) {
   const includeWaypoints = options.waypointsEnroute || options.waypointsTerminal;
+  const normalizedZoom = Number.isFinite(options.zoom) ? options.zoom : 0;
+  const normalizedBounds = {
+    west: Number.isFinite(bounds.west) ? bounds.west : -180,
+    south: Number.isFinite(bounds.south) ? bounds.south : -85,
+    east: Number.isFinite(bounds.east) ? bounds.east : 180,
+    north: Number.isFinite(bounds.north) ? bounds.north : 85,
+  };
 
   const query = new URLSearchParams({
-    west: bounds.west.toString(),
-    south: bounds.south.toString(),
-    east: bounds.east.toString(),
-    north: bounds.north.toString(),
-    zoom: options.zoom.toString(),
+    west: normalizedBounds.west.toString(),
+    south: normalizedBounds.south.toString(),
+    east: normalizedBounds.east.toString(),
+    north: normalizedBounds.north.toString(),
+    zoom: normalizedZoom.toString(),
     airports: String(options.airports),
     waypoints: String(includeWaypoints),
     vors: String(options.vors),
