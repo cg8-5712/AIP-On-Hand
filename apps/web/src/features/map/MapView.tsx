@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import type { Bounds, MapLayersResponse, ProcedureGeometryResponse, ProcedureKind } from "../../types/api";
+import type { Bounds, LatLon, MapLayersResponse, ProcedureGeometryResponse, ProcedureKind } from "../../types/api";
 import type { BasemapTone, MapFocusRequest, RouteMapOverlay } from "../app/types";
 
 type LayerVisibility = {
@@ -103,6 +103,22 @@ const procedurePalette: Record<ProcedureKind, { line: string; point: string }> =
   approach: { line: "#e879f9", point: "#f5d0fe" },
   procedure: { line: "#94a3b8", point: "#e2e8f0" },
 };
+const airwayLabelLimits = {
+  baseMaxCount: 100,
+  routeMaxCount: 6,
+  minDistanceNm: 24,
+  baseMinPixelSpacing: 140,
+  routeMinPixelSpacing: 160,
+} as const;
+
+type AirwayLabelDirection = "both" | "forward" | "backward";
+type AirwayLabelSegment = {
+  airwayName: string;
+  direction?: string | null;
+  airwayType?: string | null;
+  from: LatLon;
+  to: LatLon;
+};
 
 function createBasemapLayer(tone: BasemapTone) {
   const config = basemapConfig[tone];
@@ -147,6 +163,265 @@ function createSymbolIcon(
     tooltipAnchor: [0, -14],
   });
 }
+
+function airwayLineColor(airwayType?: string | null) {
+  const normalized = airwayType?.trim().toUpperCase();
+  if (normalized === "J") {
+    return airwayLineColors.J;
+  }
+  if (normalized === "V") {
+    return airwayLineColors.V;
+  }
+  return airwayLineColors.default;
+}
+
+function normalizeAirwayLabelDirection(direction?: string | null): AirwayLabelDirection {
+  switch (direction?.trim().toUpperCase()) {
+    case "F":
+      return "forward";
+    case "B":
+      return "backward";
+    default:
+      return "both";
+  }
+}
+
+function midpoint(from: LatLon, to: LatLon): LatLon {
+  return { lat: (from.lat + to.lat) / 2, lon: (from.lon + to.lon) / 2 };
+}
+
+function approximateDistanceNm(from: LatLon, to: LatLon) {
+  const averageLatitudeRad = (((from.lat + to.lat) / 2) * Math.PI) / 180;
+  const latNm = (to.lat - from.lat) * 60;
+  const lonNm = (to.lon - from.lon) * 60 * Math.cos(averageLatitudeRad);
+  return Math.hypot(latNm, lonNm);
+}
+
+function airwayLabelOrientation(
+  map: L.Map,
+  from: LatLon,
+  to: LatLon,
+  direction?: string | null,
+) {
+  // Use projected pixel coordinates to calculate angle, ensuring label aligns with rendered line
+  const zoom = map.getZoom();
+  const fromPoint = map.project([from.lat, from.lon], zoom);
+  const toPoint = map.project([to.lat, to.lon], zoom);
+
+  const dx = toPoint.x - fromPoint.x;
+  const dy = toPoint.y - fromPoint.y;
+
+  // atan2 with y, x gives angle from positive x-axis
+  // In screen coordinates, y increases downward, so we negate dy
+  let rotationDeg = (Math.atan2(-dy, dx) * 180) / Math.PI;
+  let labelDirection = normalizeAirwayLabelDirection(direction);
+
+  // Keep label readable by flipping if upside down
+  if (rotationDeg > 90) {
+    rotationDeg -= 180;
+    labelDirection = labelDirection === "forward" ? "backward" : labelDirection === "backward" ? "forward" : "both";
+  } else if (rotationDeg < -90) {
+    rotationDeg += 180;
+    labelDirection = labelDirection === "forward" ? "backward" : labelDirection === "backward" ? "forward" : "both";
+  }
+
+  return { rotationDeg, labelDirection };
+}
+
+function createAirwayLabelIcon(
+  airwayName: string,
+  lineColor: string,
+  rotationDeg: number,
+  labelDirection: AirwayLabelDirection,
+  emphasized: boolean,
+) {
+  const safeName = escapeHtml(airwayName);
+  const fontSize = emphasized ? 13 : 12;
+  const bodyHeight = emphasized ? 18 : 16;
+  const strokeWidth = emphasized ? 1.8 : 1.5;
+  const arrowWidth = labelDirection === "both" ? 0 : emphasized ? 10 : 8;
+  const bodyWidth = Math.max(emphasized ? 48 : 44, Math.round(airwayName.length * (fontSize * 0.65) + (emphasized ? 14 : 12)));
+  const totalWidth = bodyWidth + arrowWidth + strokeWidth * 2;
+  const totalHeight = bodyHeight + strokeWidth * 2;
+  const halfHeight = totalHeight / 2;
+  const left = strokeWidth;
+  const right = totalWidth - strokeWidth;
+  const top = strokeWidth;
+  const bottom = totalHeight - strokeWidth;
+  const rectangularRight = labelDirection === "forward" ? right - arrowWidth : right;
+  const rectangularLeft = labelDirection === "backward" ? left + arrowWidth : left;
+
+  const outlinePoints =
+    labelDirection === "forward"
+      ? `${left},${top} ${rectangularRight},${top} ${right},${halfHeight} ${rectangularRight},${bottom} ${left},${bottom}`
+      : labelDirection === "backward"
+        ? `${rectangularLeft},${top} ${right},${top} ${right},${bottom} ${rectangularLeft},${bottom} ${left},${halfHeight}`
+        : `${left},${top} ${right},${top} ${right},${bottom} ${left},${bottom}`;
+  const textX =
+    labelDirection === "forward"
+      ? left + bodyWidth / 2
+      : labelDirection === "backward"
+        ? rectangularLeft + bodyWidth / 2
+        : totalWidth / 2;
+  const textY = totalHeight / 2;
+
+  return L.divIcon({
+    className: "navmap-div-icon navmap-div-icon-airway-label",
+    html: `
+      <div
+        class="navmap-airway-label"
+        style="width: ${totalWidth}px; height: ${totalHeight}px; transform: rotate(${rotationDeg}deg);"
+      >
+        <svg
+          viewBox="0 0 ${totalWidth} ${totalHeight}"
+          width="${totalWidth}"
+          height="${totalHeight}"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <polygon
+            points="${outlinePoints}"
+            fill="white"
+            fill-opacity="0.95"
+            stroke="${lineColor}"
+            stroke-width="${strokeWidth}"
+            stroke-linejoin="round"
+          />
+          <text
+            x="${textX}"
+            y="${textY}"
+            fill="${lineColor}"
+            font-family="'Fira Code', monospace"
+            font-size="${fontSize}"
+            font-weight="600"
+            letter-spacing="${emphasized ? "0.04em" : "0.03em"}"
+            text-anchor="middle"
+            dominant-baseline="central"
+          >${safeName}</text>
+        </svg>
+      </div>
+    `,
+    iconSize: [totalWidth, totalHeight],
+    iconAnchor: [totalWidth / 2, totalHeight / 2],
+  });
+}
+
+function addAirwayLabel(
+  map: L.Map,
+  layer: L.LayerGroup,
+  airwayName: string,
+  direction: string | null | undefined,
+  from: LatLon,
+  to: LatLon,
+  lineColor: string,
+  emphasized: boolean,
+) {
+  const { rotationDeg, labelDirection } = airwayLabelOrientation(map, from, to, direction);
+  const anchor = midpoint(from, to);
+
+  L.marker([anchor.lat, anchor.lon], {
+    icon: createAirwayLabelIcon(airwayName, lineColor, rotationDeg, labelDirection, emphasized),
+    interactive: false,
+    keyboard: false,
+    zIndexOffset: emphasized ? 1100 : 320,
+  }).addTo(layer);
+}
+
+function collapseAirwayRuns<T extends AirwayLabelSegment>(segments: T[]) {
+  const runs: T[] = [];
+
+  for (const segment of segments) {
+    const lastRun = runs[runs.length - 1];
+
+    if (
+      lastRun &&
+      lastRun.airwayName === segment.airwayName &&
+      normalizeAirwayLabelDirection(lastRun.direction) === normalizeAirwayLabelDirection(segment.direction)
+    ) {
+      lastRun.to = segment.to;
+      continue;
+    }
+
+    runs.push({ ...segment });
+  }
+
+  return runs;
+}
+
+function dedupeAirwayNames<T extends AirwayLabelSegment>(segments: T[]) {
+  const longestByAirwayName = new Map<string, T>();
+
+  for (const segment of segments) {
+    const existing = longestByAirwayName.get(segment.airwayName);
+
+    if (!existing || approximateDistanceNm(segment.from, segment.to) > approximateDistanceNm(existing.from, existing.to)) {
+      longestByAirwayName.set(segment.airwayName, segment);
+    }
+  }
+
+  return [...longestByAirwayName.values()];
+}
+
+function baseAirwayLabelBudget(zoom: number) {
+  if (zoom >= 9) {
+    return { maxCount: airwayLabelLimits.baseMaxCount, minPixelSpacing: 120 };
+  }
+
+  if (zoom >= 8) {
+    return { maxCount: 12, minPixelSpacing: 150 };
+  }
+
+  if (zoom >= 7) {
+    return { maxCount: 8, minPixelSpacing: 180 };
+  }
+
+  return { maxCount: 0, minPixelSpacing: airwayLabelLimits.baseMinPixelSpacing };
+}
+
+function selectAirwayLabelSegments<T extends AirwayLabelSegment>(
+  map: L.Map,
+  segments: T[],
+  maxCount: number,
+  minPixelSpacing: number,
+  uniqueByAirwayName = false,
+) {
+  const bounds = map.getBounds().pad(0.08);
+  const collapsedRuns = collapseAirwayRuns(segments).filter((segment) => {
+    const anchor = midpoint(segment.from, segment.to);
+    return bounds.contains([anchor.lat, anchor.lon]);
+  });
+  const candidateRuns = uniqueByAirwayName ? dedupeAirwayNames(collapsedRuns) : collapsedRuns;
+  const runs = candidateRuns
+    .filter((segment) => approximateDistanceNm(segment.from, segment.to) >= airwayLabelLimits.minDistanceNm)
+    .sort((left, right) => approximateDistanceNm(right.from, right.to) - approximateDistanceNm(left.from, left.to));
+
+  if (runs.length === 0 || runs.length > maxCount) {
+    return [];
+  }
+
+  const accepted: T[] = [];
+  const acceptedPoints: L.Point[] = [];
+  const zoom = map.getZoom();
+
+  for (const segment of runs) {
+    const anchor = midpoint(segment.from, segment.to);
+    const projectedAnchor = map.project([anchor.lat, anchor.lon], zoom);
+
+    if (acceptedPoints.some((point) => point.distanceTo(projectedAnchor) < minPixelSpacing)) {
+      continue;
+    }
+
+    accepted.push(segment);
+    acceptedPoints.push(projectedAnchor);
+  }
+
+  return accepted;
+}
+
+// TODO(navmap): Re-enable airway label rendering after redesigning placement rules.
+// Keep the current helpers in place so the next pass can iterate on them instead of rebuilding from zero.
+const airwayLabelTodoKeepalive = { addAirwayLabel, selectAirwayLabelSegments };
+void airwayLabelTodoKeepalive;
 
 export function MapView({
   layers,
@@ -311,23 +586,45 @@ export function MapView({
 
     if (visibility.airways) {
       for (const airway of layers.airways) {
+        const color = airwayLineColor(airway.airwayType);
+
         L.polyline(
           [
             [airway.from.lat, airway.from.lon],
             [airway.to.lat, airway.to.lon],
           ],
           {
-            color:
-              airway.airwayType === "J"
-                ? airwayLineColors.J
-                : airway.airwayType === "V"
-                  ? airwayLineColors.V
-                  : airwayLineColors.default,
+            color,
             weight: 1.35,
             opacity: 0.62,
           },
         ).addTo(airwayLayer);
       }
+
+      /*
+      TODO(navmap): Re-enable airway labels after redesigning low-zoom placement.
+      const airwayLabelBudget = baseAirwayLabelBudget(map.getZoom());
+      const labelableAirways = selectAirwayLabelSegments(
+        map,
+        layers.airways,
+        airwayLabelBudget.maxCount,
+        airwayLabelBudget.minPixelSpacing,
+        true,
+      );
+
+      for (const airway of labelableAirways) {
+        addAirwayLabel(
+          map,
+          airwayLayer,
+          airway.airwayName,
+          airway.direction,
+          airway.from,
+          airway.to,
+          airwayLineColor(airway.airwayType),
+          false,
+        );
+      }
+      */
     }
 
     if (visibility.waypointsEnroute || visibility.waypointsTerminal) {
@@ -429,9 +726,10 @@ export function MapView({
   }, [selectedProcedure]);
 
   useEffect(() => {
+    const map = mapRef.current;
     const routeOverlayLayer = routeOverlayLayerRef.current;
 
-    if (!routeOverlayLayer) {
+    if (!map || !routeOverlayLayer) {
       return;
     }
 
@@ -467,6 +765,32 @@ export function MapView({
         fillOpacity: 0.95,
       }).addTo(routeOverlayLayer);
     }
+
+    /*
+    TODO(navmap): Re-enable route preview airway labels after redesigning placement rules.
+    const airwayRuns = selectAirwayLabelSegments(
+      map,
+      routeOverlay.selection.candidate.airways,
+      airwayLabelLimits.routeMaxCount,
+      airwayLabelLimits.routeMinPixelSpacing,
+      true,
+    );
+
+    if (airwayRuns.length > 0) {
+      for (const airwayRun of airwayRuns) {
+        addAirwayLabel(
+          map,
+          routeOverlayLayer,
+          airwayRun.airwayName,
+          airwayRun.direction,
+          airwayRun.from,
+          airwayRun.to,
+          routeOverlayLineColor,
+          true,
+        );
+      }
+    }
+    */
 
     renderRouteProcedure(
       routeOverlayLayer,
