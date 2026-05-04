@@ -245,6 +245,11 @@ function filterProceduresByRunway(procedures: ProcedureSummary[], runwayName: st
   return procedures.filter((procedure) => procedureRunwayMatchesSelectedRunway(procedure, normalizedRunwayName));
 }
 
+function filterProceduresByRouteOptions(procedures: ProcedureSummary[], routeOptions: RouteProcedureOption[]) {
+  const allowedProcedureIds = new Set(routeOptions.map((option) => option.procedureId));
+  return procedures.filter((procedure) => allowedProcedureIds.has(procedure.id));
+}
+
 function filterTransitionsByRunway(transitions: TransitionSummary[], runwayName: string | null) {
   const normalizedRunwayName = normalizeRunwayName(runwayName);
   if (!normalizedRunwayName) {
@@ -583,25 +588,35 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
     () => (arrivalPlanningData ? sortRunwaysForOperation(arrivalPlanningData.runways, "arrival") : []),
     [arrivalPlanningData],
   );
+  const activeCandidate = useMemo(
+    () => (activeCandidateIndex !== null ? result?.candidates[activeCandidateIndex] ?? null : null),
+    [activeCandidateIndex, result],
+  );
   const availableDepartureProcedures = useMemo(
     () =>
-      departurePlanningData
-        ? filterProceduresByRunway(
-            proceduresForKind(departurePlanningData.procedures, "sid"),
-            selectedDepartureRunwayName,
+      departurePlanningData && activeCandidate
+        ? filterProceduresByRouteOptions(
+            filterProceduresByRunway(
+              proceduresForKind(departurePlanningData.procedures, "sid"),
+              selectedDepartureRunwayName,
+            ),
+            activeCandidate.departure.procedures,
           )
         : [],
-    [departurePlanningData, selectedDepartureRunwayName],
+    [activeCandidate, departurePlanningData, selectedDepartureRunwayName],
   );
   const availableArrivalStarProcedures = useMemo(
     () =>
-      arrivalPlanningData
-        ? filterProceduresByRunway(
-            proceduresForKind(arrivalPlanningData.procedures, "star"),
-            selectedArrivalRunwayName,
+      arrivalPlanningData && activeCandidate
+        ? filterProceduresByRouteOptions(
+            filterProceduresByRunway(
+              proceduresForKind(arrivalPlanningData.procedures, "star"),
+              selectedArrivalRunwayName,
+            ),
+            activeCandidate.arrival.procedures,
           )
         : [],
-    [arrivalPlanningData, selectedArrivalRunwayName],
+    [activeCandidate, arrivalPlanningData, selectedArrivalRunwayName],
   );
   const groupedArrivalTransitions = useMemo(
     () =>
@@ -631,10 +646,6 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
           )
         : [],
     [arrivalPlanningData, selectedArrivalRunwayName, selectedArrivalTransitionApproachIds],
-  );
-  const activeCandidate = useMemo(
-    () => (activeCandidateIndex !== null ? result?.candidates[activeCandidateIndex] ?? null : null),
-    [activeCandidateIndex, result],
   );
   const displayedDepartureProcedureIds = useMemo(
     () =>
