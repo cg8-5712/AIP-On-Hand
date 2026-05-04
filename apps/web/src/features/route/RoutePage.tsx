@@ -416,6 +416,84 @@ function SelectionSnapshotField({
   );
 }
 
+function SetupFlowRow({
+  label,
+  value,
+  hint,
+  tone = "slate",
+  actionLabel,
+  onAction,
+}: {
+  label: string;
+  value: string;
+  hint?: string | null;
+  tone?: "slate" | "emerald" | "amber" | "orange" | "fuchsia";
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  const toneClasses =
+    tone === "emerald"
+      ? {
+          border: "border-emerald-300/16 bg-emerald-300/7",
+          label: "text-emerald-200/75",
+          value: "text-emerald-50",
+          button:
+            "border-emerald-300/30 bg-emerald-300/10 text-emerald-100 hover:border-emerald-200/60 hover:bg-emerald-300/18",
+        }
+      : tone === "amber"
+        ? {
+            border: "border-amber-300/16 bg-amber-300/7",
+            label: "text-amber-200/75",
+            value: "text-amber-50",
+            button:
+              "border-amber-300/30 bg-amber-300/10 text-amber-100 hover:border-amber-200/60 hover:bg-amber-300/18",
+          }
+        : tone === "orange"
+          ? {
+              border: "border-orange-300/16 bg-orange-300/7",
+              label: "text-orange-200/75",
+              value: "text-orange-50",
+              button:
+                "border-orange-300/30 bg-orange-300/10 text-orange-100 hover:border-orange-200/60 hover:bg-orange-300/18",
+            }
+          : tone === "fuchsia"
+            ? {
+                border: "border-fuchsia-300/16 bg-fuchsia-300/7",
+                label: "text-fuchsia-200/75",
+                value: "text-fuchsia-50",
+                button:
+                  "border-fuchsia-300/30 bg-fuchsia-300/10 text-fuchsia-100 hover:border-fuchsia-200/60 hover:bg-fuchsia-300/18",
+              }
+            : {
+                border: "border-slate-700/60 bg-slate-950/45",
+                label: "text-slate-400",
+                value: "text-slate-100",
+                button:
+                  "border-slate-300/18 bg-slate-300/8 text-slate-200 hover:border-slate-200/40 hover:bg-slate-200/12",
+              };
+
+  return (
+    <div className={`rounded-[18px] border px-4 py-3 ${toneClasses.border}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className={`m-0 text-[0.68rem] uppercase tracking-[0.22em] ${toneClasses.label}`}>{label}</p>
+          <p className={`mt-2 break-words font-mono text-base ${toneClasses.value}`}>{value}</p>
+          {hint ? <p className="mt-2 text-sm leading-6 text-slate-400">{hint}</p> : null}
+        </div>
+        {actionLabel && onAction ? (
+          <button
+            type="button"
+            onClick={onAction}
+            className={`cursor-pointer rounded-full border px-3 py-1 text-xs font-medium transition duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/35 ${toneClasses.button}`}
+          >
+            {actionLabel}
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function CandidateCard({
   candidate,
   index,
@@ -1557,45 +1635,42 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
                     ? `${availableDepartureProcedures.length} SID option(s) are available for RWY ${selectedDepartureRunwayName}.`
                     : "Select a departure runway to preview matching SID procedures on the map."}
                 </p>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <SelectionSnapshotField
+                <div className="mt-4 grid gap-3">
+                  <SetupFlowRow
                     label="Runway"
                     value={selectedDepartureRunwayName ? `RWY ${selectedDepartureRunwayName}` : "Pending"}
-                    hint={selectedDepartureRunwayName ? "Departure runway selected" : "Choose a runway to unlock SIDs"}
+                    hint={selectedDepartureRunwayName ? "Departure runway selected." : "Choose a runway to unlock SID choices."}
                     tone="emerald"
                   />
-                  <SelectionSnapshotField
-                    label="SID status"
-                    value={selectedDepartureProcedure ? selectedDepartureProcedure.name : "Waiting for map pick"}
+                  <SetupFlowRow
+                    label="SID"
+                    value={
+                      selectedDepartureProcedure
+                        ? `${selectedDepartureProcedure.name}${selectedDepartureProcedureRunwayLabel ? ` / RWY ${selectedDepartureProcedureRunwayLabel}` : ""}`
+                        : "Waiting for map selection"
+                    }
                     hint={
                       selectedDepartureProcedure
                         ? isDepartureProcedureConfirmed
-                          ? "Confirmed and isolated on the map"
-                          : "Selected on the map, confirm if needed"
-                        : "Pick one SID from the displayed procedures"
+                          ? "Confirmed and isolated on the map."
+                          : "Selected on the map. Confirm if you want to hide the other SID candidates."
+                        : "Pick one SID from the displayed route-linked procedures."
                     }
                     tone="emerald"
+                    actionLabel={
+                      selectedDepartureProcedure
+                        ? isDepartureProcedureConfirmed
+                          ? "SID confirmed"
+                          : "Confirm SID"
+                        : undefined
+                    }
+                    onAction={
+                      selectedDepartureProcedure
+                        ? () => setIsDepartureProcedureConfirmed((current) => !current)
+                        : undefined
+                    }
                   />
                 </div>
-                {selectedDepartureProcedure ? (
-                  <div className="mt-2 flex flex-wrap items-center gap-3">
-                    <p className="text-sm text-emerald-100">
-                      Selected SID: {selectedDepartureProcedure.name}
-                      {selectedDepartureProcedureRunwayLabel ? ` / RWY ${selectedDepartureProcedureRunwayLabel}` : ""}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setIsDepartureProcedureConfirmed((current) => !current)}
-                      className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
-                        isDepartureProcedureConfirmed
-                          ? "border-emerald-200/70 bg-emerald-300/20 text-emerald-50"
-                          : "border-emerald-300/30 bg-emerald-300/10 text-emerald-100 hover:border-emerald-200/60 hover:bg-emerald-300/18"
-                      }`}
-                    >
-                      {isDepartureProcedureConfirmed ? "SID confirmed" : "Confirm SID"}
-                    </button>
-                  </div>
-                ) : null}
               </section>
 
               <section className="rounded-[22px] border border-amber-400/16 bg-amber-400/6 p-5 shadow-[0_18px_42px_rgba(245,158,11,0.08)]">
@@ -1626,107 +1701,98 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
                     ? `${availableArrivalStarProcedures.length} STAR option(s), ${availableArrivalTransitions.length} transition option(s), and ${availableArrivalApproachProcedures.length} approach option(s) are available for RWY ${selectedArrivalRunwayName}.`
                     : "Select an arrival runway to preview matching STAR procedures on the map."}
                 </p>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <SelectionSnapshotField
+                <div className="mt-4 grid gap-3">
+                  <SetupFlowRow
                     label="Runway"
                     value={selectedArrivalRunwayName ? `RWY ${selectedArrivalRunwayName}` : "Pending"}
-                    hint={selectedArrivalRunwayName ? "Arrival runway selected" : "Choose a runway to unlock STARs"}
+                    hint={selectedArrivalRunwayName ? "Arrival runway selected." : "Choose a runway to unlock STAR choices."}
                     tone="amber"
                   />
-                  <SelectionSnapshotField
+                  <SetupFlowRow
                     label="STAR"
-                    value={selectedArrivalProcedure ? selectedArrivalProcedure.name : "Pending"}
+                    value={
+                      selectedArrivalProcedure
+                        ? `${selectedArrivalProcedure.name}${selectedArrivalProcedureRunwayLabel ? ` / RWY ${selectedArrivalProcedureRunwayLabel}` : ""}`
+                        : "Waiting for map selection"
+                    }
                     hint={
                       selectedArrivalProcedure
                         ? isArrivalProcedureConfirmed
-                          ? "Confirmed and isolated on the map"
-                          : "Selected on the map"
-                        : "Choose after runway selection"
+                          ? "Confirmed and isolated on the map."
+                          : "Selected on the map. Confirm if you want to hide the other STAR candidates."
+                        : "Choose one STAR after runway selection."
                     }
                     tone="amber"
+                    actionLabel={
+                      selectedArrivalProcedure
+                        ? isArrivalProcedureConfirmed
+                          ? "STAR confirmed"
+                          : "Confirm STAR"
+                        : undefined
+                    }
+                    onAction={
+                      selectedArrivalProcedure
+                        ? () => setIsArrivalProcedureConfirmed((current) => !current)
+                        : undefined
+                    }
                   />
-                  <SelectionSnapshotField
+                  <SetupFlowRow
                     label="Transition"
-                    value={selectedArrivalTransition ? selectedArrivalTransition.name : "Pending"}
+                    value={
+                      selectedArrivalTransition
+                        ? `${selectedArrivalTransition.name}${selectedArrivalTransitionRunwayLabel ? ` / RWY ${selectedArrivalTransitionRunwayLabel}` : ""}`
+                        : "Pending"
+                    }
                     hint={
                       selectedArrivalTransition
                         ? isArrivalTransitionConfirmed
-                          ? "Confirmed and isolated on the map"
-                          : "Selected on the map"
-                        : "Unlocks after STAR selection"
+                          ? "Confirmed and isolated on the map."
+                          : "Selected on the map. Confirm if you want to hide the other transition candidates."
+                        : "Transition choices appear after STAR selection."
                     }
                     tone="orange"
+                    actionLabel={
+                      selectedArrivalTransition
+                        ? isArrivalTransitionConfirmed
+                          ? "Transition confirmed"
+                          : "Confirm transition"
+                        : undefined
+                    }
+                    onAction={
+                      selectedArrivalTransition
+                        ? () => setIsArrivalTransitionConfirmed((current) => !current)
+                        : undefined
+                    }
                   />
-                  <SelectionSnapshotField
+                  <SetupFlowRow
                     label="Approach"
-                    value={selectedApproachProcedure ? selectedApproachProcedure.name : "Pending"}
+                    value={
+                      selectedApproachProcedure
+                        ? `${selectedApproachProcedure.name}${selectedApproachProcedureRunwayLabel ? ` / RWY ${selectedApproachProcedureRunwayLabel}` : ""}`
+                        : "Pending"
+                    }
                     hint={
                       selectedApproachProcedure
                         ? isArrivalApproachConfirmed
-                          ? "Confirmed and isolated on the map"
-                          : "Selected on the map"
-                        : "Unlocks after transition selection"
+                          ? "Confirmed and isolated on the map."
+                          : "Selected on the map. Confirm if you want to hide the other approach candidates."
+                        : "Approach choices appear after transition selection."
                     }
                     tone="fuchsia"
+                    actionLabel={
+                      selectedApproachProcedure
+                        ? isArrivalApproachConfirmed
+                          ? "Approach confirmed"
+                          : "Confirm approach"
+                        : undefined
+                    }
+                    onAction={
+                      selectedApproachProcedure
+                        ? () => setIsArrivalApproachConfirmed((current) => !current)
+                        : undefined
+                    }
                   />
                 </div>
-                {selectedArrivalProcedure ? (
-                  <div className="mt-2 flex flex-wrap items-center gap-3">
-                    <p className="text-sm text-amber-100">
-                      Selected STAR: {selectedArrivalProcedure.name}
-                      {selectedArrivalProcedureRunwayLabel ? ` / RWY ${selectedArrivalProcedureRunwayLabel}` : ""}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setIsArrivalProcedureConfirmed((current) => !current)}
-                      className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
-                        isArrivalProcedureConfirmed
-                          ? "border-amber-200/70 bg-amber-300/20 text-amber-50"
-                          : "border-amber-300/30 bg-amber-300/10 text-amber-100 hover:border-amber-200/60 hover:bg-amber-300/18"
-                      }`}
-                    >
-                      {isArrivalProcedureConfirmed ? "STAR confirmed" : "Confirm STAR"}
-                    </button>
-                  </div>
-                ) : null}
-                {selectedArrivalTransition ? (
-                  <div className="mt-2 flex flex-wrap items-center gap-3">
-                    <p className="text-sm text-orange-100">
-                      Selected transition: {selectedArrivalTransition.name}
-                      {selectedArrivalTransitionRunwayLabel ? ` / RWY ${selectedArrivalTransitionRunwayLabel}` : ""}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setIsArrivalTransitionConfirmed((current) => !current)}
-                      className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
-                        isArrivalTransitionConfirmed
-                          ? "border-orange-200/70 bg-orange-300/20 text-orange-50"
-                          : "border-orange-300/30 bg-orange-300/10 text-orange-100 hover:border-orange-200/60 hover:bg-orange-300/18"
-                      }`}
-                    >
-                      {isArrivalTransitionConfirmed ? "Transition confirmed" : "Confirm transition"}
-                    </button>
-                  </div>
-                ) : null}
-                {selectedApproachProcedure ? (
-                  <div className="mt-2 flex flex-wrap items-center gap-3">
-                    <p className="text-sm text-fuchsia-100">
-                      Selected approach: {selectedApproachProcedure.name}
-                      {selectedApproachProcedureRunwayLabel ? ` / RWY ${selectedApproachProcedureRunwayLabel}` : ""}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setIsArrivalApproachConfirmed((current) => !current)}
-                      className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
-                        isArrivalApproachConfirmed
-                          ? "border-fuchsia-200/70 bg-fuchsia-300/20 text-fuchsia-50"
-                          : "border-fuchsia-300/30 bg-fuchsia-300/10 text-fuchsia-100 hover:border-fuchsia-200/60 hover:bg-fuchsia-300/18"
-                      }`}
-                    >
-                      {isArrivalApproachConfirmed ? "Approach confirmed" : "Confirm approach"}
-                    </button>
-                  </div>
-                ) : null}
               </section>
             </div>
           ) : null}
