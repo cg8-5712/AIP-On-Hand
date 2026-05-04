@@ -427,6 +427,7 @@ pub struct AirportRunwayEnd {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum GeneratedAtisType {
+    Combined,
     Departure,
     Arrival,
 }
@@ -445,6 +446,7 @@ pub struct GeneratedAtisReport {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GeneratedAtisBundle {
+    pub is_combined: bool,
     pub departure: GeneratedAtisReport,
     pub arrival: GeneratedAtisReport,
 }

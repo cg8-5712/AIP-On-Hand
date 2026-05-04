@@ -954,10 +954,7 @@ fn query_airport_runway_ends(
     Ok(runway_ends)
 }
 
-fn query_airway_segments(
-    connection: &Connection,
-    airway_name: &str,
-) -> Result<Vec<AirwayFeature>> {
+fn query_airway_segments(connection: &Connection, airway_name: &str) -> Result<Vec<AirwayFeature>> {
     let mut statement = connection.prepare(
         "
         select
@@ -1139,7 +1136,10 @@ fn query_procedure_legs(
     Ok((path, missed_path))
 }
 
-fn query_transition_legs(connection: &Connection, transition_id: i64) -> Result<Vec<ProcedureLegPoint>> {
+fn query_transition_legs(
+    connection: &Connection,
+    transition_id: i64,
+) -> Result<Vec<ProcedureLegPoint>> {
     let mut statement = connection.prepare(
         "
         select

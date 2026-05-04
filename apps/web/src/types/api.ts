@@ -361,7 +361,7 @@ export type AirportCommunication = {
   frequencyMhz: number;
 };
 
-export type GeneratedAtisType = "departure" | "arrival";
+export type GeneratedAtisType = "combined" | "departure" | "arrival";
 
 export type GeneratedAtisReport = {
   atisType: GeneratedAtisType;
@@ -373,6 +373,7 @@ export type GeneratedAtisReport = {
 };
 
 export type GeneratedAtisBundle = {
+  isCombined: boolean;
   departure: GeneratedAtisReport;
   arrival: GeneratedAtisReport;
 };

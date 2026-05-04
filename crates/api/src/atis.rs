@@ -26,6 +26,13 @@ enum AtisOperation {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReportMode {
+    Combined,
+    Departure,
+    Arrival,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WindUnit {
     Knots,
     MetersPerSecond,
@@ -92,6 +99,7 @@ pub fn build_generated_atis(
     let departure_runways =
         select_active_runways(runway_ends, &parsed_wind, AtisOperation::Departure);
     let arrival_runways = select_active_runways(runway_ends, &parsed_wind, AtisOperation::Arrival);
+    let is_combined = physical_runway_count(runway_ends) <= 2;
 
     if departure_runways.is_empty() && arrival_runways.is_empty() {
         return None;
@@ -100,12 +108,38 @@ pub fn build_generated_atis(
     let departure_contacts = select_contacts(&overview.communications, AtisOperation::Departure);
     let arrival_contacts = select_contacts(&overview.communications, AtisOperation::Arrival);
 
+    if is_combined {
+        let combined_contacts = if !departure_contacts.is_empty() {
+            departure_contacts
+        } else {
+            arrival_contacts
+        };
+        let combined_report = build_report(
+            &airport_name,
+            metar,
+            overview,
+            ReportMode::Combined,
+            &information_code,
+            issued_at,
+            &parsed_wind,
+            &departure_runways,
+            &arrival_runways,
+            combined_contacts,
+        );
+
+        return Some(GeneratedAtisBundle {
+            is_combined: true,
+            departure: combined_report.clone(),
+            arrival: combined_report,
+        });
+    }
+
     Some(GeneratedAtisBundle {
         departure: build_report(
             &airport_name,
             metar,
             overview,
-            AtisOperation::Departure,
+            ReportMode::Departure,
             &information_code,
             issued_at.clone(),
             &parsed_wind,
@@ -117,7 +151,7 @@ pub fn build_generated_atis(
             &airport_name,
             metar,
             overview,
-            AtisOperation::Arrival,
+            ReportMode::Arrival,
             &information_code,
             issued_at,
             &parsed_wind,
@@ -125,6 +159,7 @@ pub fn build_generated_atis(
             &arrival_runways,
             arrival_contacts,
         ),
+        is_combined: false,
     })
 }
 
@@ -132,7 +167,7 @@ fn build_report(
     airport_name: &str,
     metar: &MetarObservation,
     overview: &AirportWeatherOverviewResponse,
-    operation: AtisOperation,
+    mode: ReportMode,
     information_code: &str,
     issued_at: Option<String>,
     parsed_wind: &ParsedWind,
@@ -141,40 +176,55 @@ fn build_report(
     contacts: Vec<AirportCommunication>,
 ) -> GeneratedAtisReport {
     let airport_title = normalize_airport_name(airport_name);
-    let report_type_label = match operation {
-        AtisOperation::Departure => "Departure",
-        AtisOperation::Arrival => "Arrival",
+    let report_type_label = match mode {
+        ReportMode::Combined => None,
+        ReportMode::Departure => Some("Departure"),
+        ReportMode::Arrival => Some("Arrival"),
     };
-    let active_runways = match operation {
-        AtisOperation::Departure => departure_runways,
-        AtisOperation::Arrival => arrival_runways,
+    let active_runways = match mode {
+        ReportMode::Combined => {
+            if !departure_runways.is_empty() {
+                departure_runways
+            } else {
+                arrival_runways
+            }
+        }
+        ReportMode::Departure => departure_runways,
+        ReportMode::Arrival => arrival_runways,
     };
-    let runways_in_use = active_runways
-        .iter()
-        .map(|runway| runway.runway_name.clone())
-        .collect::<Vec<_>>();
+    let runways_in_use = if matches!(mode, ReportMode::Combined) {
+        merged_runway_names(arrival_runways, departure_runways)
+    } else {
+        active_runways
+            .iter()
+            .map(|runway| runway.runway_name.clone())
+            .collect::<Vec<_>>()
+    };
 
-    let mut lines = vec![format!(
-        "{airport_title} {report_type_label} information {information_code}."
-    )];
+    let mut lines = vec![match report_type_label {
+        Some(report_type_label) => {
+            format!("{airport_title} {report_type_label} information {information_code}.")
+        }
+        None => format!("{airport_title} information {information_code}."),
+    }];
 
     if let Some(issued_at) = issued_at.as_deref() {
         lines.push(format!("At time {issued_at}."));
     }
 
-    if matches!(operation, AtisOperation::Arrival) {
+    if matches!(mode, ReportMode::Arrival | ReportMode::Combined) {
         if let Some(approach_sentence) = format_expected_approach(arrival_runways) {
             lines.push(approach_sentence);
         }
     }
 
     if let Some(runway_sentence) =
-        format_runway_use_sentence(arrival_runways, departure_runways, operation)
+        format_runway_use_sentence(arrival_runways, departure_runways, mode)
     {
         lines.push(runway_sentence);
     }
 
-    if let Some(contact_sentence) = format_frequency_notice(&contacts, active_runways, operation) {
+    if let Some(contact_sentence) = format_frequency_notice(&contacts, active_runways, mode) {
         lines.push(contact_sentence);
     }
 
@@ -214,19 +264,21 @@ fn build_report(
         lines.push(trend_sentence);
     }
 
-    lines.push(match operation {
-        AtisOperation::Arrival => {
+    lines.push(match mode {
+        ReportMode::Arrival => {
             format!("Acknowledge information {information_code} on first contact with Approach.")
         }
-        AtisOperation::Departure => {
+        ReportMode::Departure => {
             format!("Advise you have information {information_code} when requesting clearance.")
         }
+        ReportMode::Combined => format!("Advise you have information {information_code}."),
     });
 
     GeneratedAtisReport {
-        atis_type: match operation {
-            AtisOperation::Departure => GeneratedAtisType::Departure,
-            AtisOperation::Arrival => GeneratedAtisType::Arrival,
+        atis_type: match mode {
+            ReportMode::Combined => GeneratedAtisType::Combined,
+            ReportMode::Departure => GeneratedAtisType::Departure,
+            ReportMode::Arrival => GeneratedAtisType::Arrival,
         },
         information_code: information_code.to_string(),
         issued_at,
@@ -234,6 +286,16 @@ fn build_report(
         contacts,
         text: lines.join(" "),
     }
+}
+
+fn physical_runway_count(runway_ends: &[AirportRunwayEnd]) -> usize {
+    runway_ends
+        .iter()
+        .map(|runway| {
+            canonical_runway_pair_key(&runway.runway_name, &runway.reciprocal_runway_name)
+        })
+        .collect::<HashSet<_>>()
+        .len()
 }
 
 fn select_active_runways(
@@ -538,7 +600,7 @@ fn format_expected_approach(arrival_runways: &[AirportRunwayEnd]) -> Option<Stri
 fn format_runway_use_sentence(
     arrival_runways: &[AirportRunwayEnd],
     departure_runways: &[AirportRunwayEnd],
-    operation: AtisOperation,
+    mode: ReportMode,
 ) -> Option<String> {
     let arrival_names = arrival_runways
         .iter()
@@ -548,11 +610,26 @@ fn format_runway_use_sentence(
         .iter()
         .map(|runway| runway.runway_name.clone())
         .collect::<Vec<_>>();
+    let has_same_runway_assignment = runway_name_sets_match(&arrival_names, &departure_names);
 
-    match operation {
-        AtisOperation::Arrival => {
+    match mode {
+        ReportMode::Combined => {
             if arrival_names.is_empty() && departure_names.is_empty() {
                 None
+            } else if has_same_runway_assignment {
+                Some(format!(
+                    "Runway {} in use.",
+                    join_runway_phrase(if !arrival_names.is_empty() {
+                        &arrival_names
+                    } else {
+                        &departure_names
+                    })
+                ))
+            } else if arrival_names.is_empty() {
+                Some(format!(
+                    "Departure Runway {}.",
+                    join_runway_phrase(&departure_names)
+                ))
             } else if departure_names.is_empty() {
                 Some(format!(
                     "Landing Runway {}.",
@@ -566,10 +643,26 @@ fn format_runway_use_sentence(
                 ))
             }
         }
-        AtisOperation::Departure => {
+        ReportMode::Arrival => {
+            if arrival_names.is_empty() && departure_names.is_empty() {
+                None
+            } else if departure_names.is_empty() || has_same_runway_assignment {
+                Some(format!(
+                    "Landing Runway {}.",
+                    join_runway_phrase(&arrival_names)
+                ))
+            } else {
+                Some(format!(
+                    "Landing Runway {}, Departure Runway {}.",
+                    join_runway_phrase(&arrival_names),
+                    join_runway_phrase(&departure_names)
+                ))
+            }
+        }
+        ReportMode::Departure => {
             if departure_names.is_empty() && arrival_names.is_empty() {
                 None
-            } else if arrival_names.is_empty() {
+            } else if arrival_names.is_empty() || has_same_runway_assignment {
                 Some(format!(
                     "Departure Runway {}.",
                     join_runway_phrase(&departure_names)
@@ -588,13 +681,13 @@ fn format_runway_use_sentence(
 fn format_frequency_notice(
     contacts: &[AirportCommunication],
     active_runways: &[AirportRunwayEnd],
-    operation: AtisOperation,
+    mode: ReportMode,
 ) -> Option<String> {
     if contacts.is_empty() {
         return None;
     }
 
-    if matches!(operation, AtisOperation::Arrival) {
+    if matches!(mode, ReportMode::Arrival) {
         return None;
     }
 
@@ -944,6 +1037,48 @@ fn join_runway_phrase(runways: &[String]) -> String {
             .map(|runway| runway.to_string())
             .collect::<Vec<_>>(),
     )
+}
+
+fn merged_runway_names(
+    arrival_runways: &[AirportRunwayEnd],
+    departure_runways: &[AirportRunwayEnd],
+) -> Vec<String> {
+    let mut merged = Vec::new();
+    let mut seen = HashSet::new();
+
+    for runway_name in arrival_runways
+        .iter()
+        .map(|runway| runway.runway_name.clone())
+        .chain(
+            departure_runways
+                .iter()
+                .map(|runway| runway.runway_name.clone()),
+        )
+    {
+        if seen.insert(runway_name.clone()) {
+            merged.push(runway_name);
+        }
+    }
+
+    merged
+}
+
+fn runway_name_sets_match(left: &[String], right: &[String]) -> bool {
+    if left.is_empty() || right.is_empty() {
+        return false;
+    }
+
+    let left_set = left.iter().cloned().collect::<HashSet<_>>();
+    let right_set = right.iter().cloned().collect::<HashSet<_>>();
+    left_set == right_set
+}
+
+fn canonical_runway_pair_key(runway_name: &str, reciprocal_runway_name: &str) -> String {
+    if runway_name <= reciprocal_runway_name {
+        format!("{runway_name}|{reciprocal_runway_name}")
+    } else {
+        format!("{reciprocal_runway_name}|{runway_name}")
+    }
 }
 
 fn join_with_and(items: &[String]) -> String {
@@ -1428,16 +1563,24 @@ mod tests {
     #[test]
     fn generated_arrival_text_matches_atis_structure() {
         let overview = sample_overview();
-        let runways = vec![sample_runway("07L", 73.0, 0.0, 0.0)];
+        let runways = vec![
+            sample_runway("07L", 73.0, -0.02, 0.0),
+            sample_runway("07C", 73.0, 0.00, 0.0),
+            sample_runway("07R", 73.0, 0.02, 0.0),
+        ];
         let bundle = build_generated_atis(&overview, &runways).expect("generated atis");
 
+        assert!(!bundle.is_combined);
         assert!(bundle
             .arrival
             .text
             .contains("Hong Kong Arrival information"));
         assert!(bundle.arrival.text.contains("At time 1700Z."));
         assert!(bundle.arrival.text.contains("ILS Runway 07L approach."));
-        assert!(bundle.arrival.text.contains("Landing Runway 07L."));
+        assert!(bundle
+            .arrival
+            .text
+            .contains("Landing Runway 07L and 07R, Departure Runway 07C."));
         assert!(bundle.arrival.text.contains("Runway surface wet."));
         assert!(bundle
             .arrival
@@ -1454,6 +1597,43 @@ mod tests {
             .contains("Temperature 26, dew point 25."));
         assert!(bundle.arrival.text.contains("QNH 994 HPa."));
         assert!(bundle.arrival.text.contains("Acknowledge information"));
+    }
+
+    #[test]
+    fn generates_single_combined_atis_for_small_airports() {
+        let overview = sample_overview();
+        let runways = vec![sample_runway("07L", 73.0, 0.0, 0.0)];
+        let bundle = build_generated_atis(&overview, &runways).expect("generated atis");
+
+        assert!(bundle.is_combined);
+        assert_eq!(bundle.departure.atis_type, GeneratedAtisType::Combined);
+        assert_eq!(bundle.departure.text, bundle.arrival.text);
+        assert!(bundle.departure.text.contains("Hong Kong information"));
+        assert!(bundle.departure.text.contains("Runway 07L in use."));
+        assert!(!bundle
+            .departure
+            .text
+            .contains("Landing Runway 07L, Departure Runway 07L."));
+    }
+
+    #[test]
+    fn does_not_repeat_same_runway_for_arrival_and_departure_reports() {
+        let runway = sample_runway("33", 330.0, 0.0, 0.0);
+        let arrival_sentence = format_runway_use_sentence(
+            std::slice::from_ref(&runway),
+            std::slice::from_ref(&runway),
+            ReportMode::Arrival,
+        )
+        .expect("arrival runway sentence");
+        let departure_sentence = format_runway_use_sentence(
+            std::slice::from_ref(&runway),
+            std::slice::from_ref(&runway),
+            ReportMode::Departure,
+        )
+        .expect("departure runway sentence");
+
+        assert_eq!(arrival_sentence, "Landing Runway 33.");
+        assert_eq!(departure_sentence, "Departure Runway 33.");
     }
 
     #[test]

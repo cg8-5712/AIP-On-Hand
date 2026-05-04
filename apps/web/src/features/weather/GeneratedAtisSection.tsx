@@ -6,6 +6,14 @@ type GeneratedAtisSectionProps = {
 };
 
 export function GeneratedAtisSection({ generatedAtis }: GeneratedAtisSectionProps) {
+  if (generatedAtis.isCombined) {
+    return (
+      <div className="mt-4 grid gap-4">
+        <GeneratedAtisCard title="Generated ATIS" report={generatedAtis.departure} />
+      </div>
+    );
+  }
+
   return (
     <div className="mt-4 grid gap-4 xl:grid-cols-2">
       <GeneratedAtisCard title="Generated D-ATIS" report={generatedAtis.departure} />
