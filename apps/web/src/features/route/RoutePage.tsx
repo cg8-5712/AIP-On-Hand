@@ -171,6 +171,14 @@ function resolveProcedureRunwayLabel(procedure: ProcedureSummary | null) {
   return `${arincRunway.direction}${arincRunway.side ?? ""}`;
 }
 
+function formatSelectionWithRunway(name: string | null | undefined, runwayLabel: string | null | undefined) {
+  if (!name) {
+    return null;
+  }
+
+  return runwayLabel ? `${name} / RWY ${runwayLabel}` : name;
+}
+
 function defaultProcedureId(procedures: RouteProcedureOption[]) {
   return procedures[0]?.procedureId ?? null;
 }
@@ -305,14 +313,89 @@ function ProcedureChip({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-full border px-3 py-1 text-xs transition ${
+      className={`cursor-pointer rounded-full border px-3 py-1 text-xs font-medium transition duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/35 ${
         isActive
-          ? "border-slate-100/80 bg-slate-100/20 text-slate-50"
+          ? "border-slate-100/80 bg-slate-100/20 text-slate-50 shadow-[0_10px_24px_rgba(255,255,255,0.06)]"
           : "border-slate-300/18 bg-slate-300/8 text-slate-200 hover:border-slate-200/40 hover:bg-slate-200/12"
       }`}
     >
       {label}
     </button>
+  );
+}
+
+function WorkflowStepCard({
+  label,
+  detail,
+  isActive,
+  isComplete,
+}: {
+  label: string;
+  detail: string;
+  isActive: boolean;
+  isComplete: boolean;
+}) {
+  return (
+    <div
+      className={`rounded-[18px] border px-4 py-3 transition ${
+        isActive
+          ? "border-cyan-300/45 bg-cyan-300/10 shadow-[0_16px_36px_rgba(56,189,248,0.12)]"
+          : isComplete
+            ? "border-emerald-300/24 bg-emerald-300/8"
+            : "border-slate-700/65 bg-slate-950/45"
+      }`}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <p className={`m-0 text-[0.68rem] uppercase tracking-[0.22em] ${isActive ? "text-cyan-100" : "text-slate-400"}`}>
+          {label}
+        </p>
+        <span
+          className={`rounded-full border px-2.5 py-0.5 text-[0.62rem] font-semibold uppercase tracking-[0.16em] ${
+            isActive
+              ? "border-cyan-200/45 bg-cyan-300/16 text-cyan-50"
+              : isComplete
+                ? "border-emerald-200/30 bg-emerald-300/14 text-emerald-50"
+                : "border-slate-300/18 bg-slate-300/8 text-slate-300"
+          }`}
+        >
+          {isActive ? "Current" : isComplete ? "Ready" : "Pending"}
+        </span>
+      </div>
+      <p className={`mt-2 text-sm leading-5 ${isActive || isComplete ? "text-slate-100" : "text-slate-400"}`}>{detail}</p>
+    </div>
+  );
+}
+
+function SelectionSnapshotField({
+  label,
+  value,
+  hint,
+  tone = "slate",
+}: {
+  label: string;
+  value: string;
+  hint?: string | null;
+  tone?: "slate" | "emerald" | "amber" | "orange" | "fuchsia" | "sky";
+}) {
+  const toneClasses =
+    tone === "emerald"
+      ? { label: "text-emerald-200/75", value: "text-emerald-50", border: "border-emerald-300/14 bg-emerald-300/6" }
+      : tone === "amber"
+        ? { label: "text-amber-200/75", value: "text-amber-50", border: "border-amber-300/14 bg-amber-300/6" }
+        : tone === "orange"
+          ? { label: "text-orange-200/75", value: "text-orange-50", border: "border-orange-300/14 bg-orange-300/6" }
+          : tone === "fuchsia"
+            ? { label: "text-fuchsia-200/75", value: "text-fuchsia-50", border: "border-fuchsia-300/14 bg-fuchsia-300/6" }
+            : tone === "sky"
+              ? { label: "text-sky-200/75", value: "text-sky-50", border: "border-sky-300/14 bg-sky-300/6" }
+              : { label: "text-slate-400", value: "text-slate-100", border: "border-slate-700/60 bg-slate-950/45" };
+
+  return (
+    <div className={`rounded-[18px] border px-4 py-3 ${toneClasses.border}`}>
+      <p className={`m-0 text-[0.68rem] uppercase tracking-[0.22em] ${toneClasses.label}`}>{label}</p>
+      <p className={`mt-2 break-words font-mono text-sm ${toneClasses.value}`}>{value}</p>
+      {hint ? <p className="mt-2 text-xs text-slate-400">{hint}</p> : null}
+    </div>
   );
 }
 
@@ -338,29 +421,38 @@ function CandidateCard({
     >
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <p className="section-kicker">Candidate {index + 1}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="section-kicker">Candidate {index + 1}</p>
+            <span
+              className={`rounded-full border px-2.5 py-1 text-[0.62rem] font-semibold uppercase tracking-[0.18em] ${
+                isActive
+                  ? "border-cyan-200/45 bg-cyan-300/16 text-cyan-50"
+                  : "border-slate-300/18 bg-slate-300/8 text-slate-300"
+              }`}
+            >
+              {isActive ? "Pinned" : "Preview"}
+            </span>
+          </div>
           <h3 className="section-title mt-1 break-words text-[1.15rem]">{formatAirwaySequence(candidate.airways)}</h3>
           <p className="mt-2 text-sm text-slate-300">
             Select this candidate first. Then choose departure runway and SID, followed by arrival runway, STAR, transition, and approach.
           </p>
         </div>
-        <div className="grid w-full gap-3 text-left sm:w-auto sm:min-w-[180px] sm:text-right">
-          <div>
-            <p className="m-0 text-[0.72rem] uppercase tracking-[0.28em] text-slate-500">Total</p>
-            <p className="m-0 font-mono text-[1.1rem] text-slate-100">
-              {formatDistance(candidate.totalDistanceNm)}
-            </p>
-          </div>
-          <div>
-            <p className="m-0 text-[0.72rem] uppercase tracking-[0.28em] text-slate-500">Airway</p>
-            <p className="m-0 font-mono text-sm text-slate-300">
-              {formatDistance(candidate.airwayDistanceNm)}
-            </p>
+        <div className="grid w-full gap-3 sm:w-auto sm:min-w-[210px]">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-[18px] border border-slate-700/60 bg-slate-950/48 px-4 py-3 text-left">
+              <p className="m-0 text-[0.72rem] uppercase tracking-[0.28em] text-slate-500">Total</p>
+              <p className="m-0 mt-1 font-mono text-[1.1rem] text-slate-100">{formatDistance(candidate.totalDistanceNm)}</p>
+            </div>
+            <div className="rounded-[18px] border border-slate-700/60 bg-slate-950/48 px-4 py-3 text-left">
+              <p className="m-0 text-[0.72rem] uppercase tracking-[0.28em] text-slate-500">Airway</p>
+              <p className="m-0 mt-1 font-mono text-sm text-slate-300">{formatDistance(candidate.airwayDistanceNm)}</p>
+            </div>
           </div>
           <button
             type="button"
             onClick={onActivate}
-            className={`rounded-2xl border px-4 py-2 text-sm font-medium transition ${
+            className={`cursor-pointer rounded-2xl border px-4 py-2 text-sm font-medium transition duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/35 ${
               isActive
                 ? "border-sky-200/70 bg-sky-300/20 text-sky-50"
                 : "border-sky-300/30 bg-sky-300/10 text-sky-100 hover:border-sky-200/60 hover:bg-sky-300/18"
@@ -474,6 +566,8 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
   const [selectedApproachProcedureId, setSelectedApproachProcedureId] = useState<number | null>(null);
   const [isDepartureProcedureConfirmed, setIsDepartureProcedureConfirmed] = useState(false);
   const [isArrivalProcedureConfirmed, setIsArrivalProcedureConfirmed] = useState(false);
+  const [isArrivalTransitionConfirmed, setIsArrivalTransitionConfirmed] = useState(false);
+  const [isArrivalApproachConfirmed, setIsArrivalApproachConfirmed] = useState(false);
   const [departurePlanningData, setDeparturePlanningData] = useState<AirportPlanningData | null>(null);
   const [arrivalPlanningData, setArrivalPlanningData] = useState<AirportPlanningData | null>(null);
   const [selectedDepartureRunwayName, setSelectedDepartureRunwayName] = useState<string | null>(null);
@@ -557,12 +651,18 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
     [availableArrivalStarProcedures, isArrivalProcedureConfirmed, selectedArrivalProcedureId],
   );
   const displayedArrivalTransitionIds = useMemo(
-    () => availableArrivalTransitions.map((transition) => transition.id),
-    [availableArrivalTransitions],
+    () =>
+      isArrivalTransitionConfirmed && selectedArrivalTransitionId
+        ? [selectedArrivalTransitionId]
+        : availableArrivalTransitions.map((transition) => transition.id),
+    [availableArrivalTransitions, isArrivalTransitionConfirmed, selectedArrivalTransitionId],
   );
   const displayedArrivalApproachProcedureIds = useMemo(
-    () => availableArrivalApproachProcedures.map((procedure) => procedure.id),
-    [availableArrivalApproachProcedures],
+    () =>
+      isArrivalApproachConfirmed && selectedApproachProcedureId
+        ? [selectedApproachProcedureId]
+        : availableArrivalApproachProcedures.map((procedure) => procedure.id),
+    [availableArrivalApproachProcedures, isArrivalApproachConfirmed, selectedApproachProcedureId],
   );
   const selectedDepartureProcedure = useMemo(
     () => findProcedureSummaryById(availableDepartureProcedures, selectedDepartureProcedureId),
@@ -644,6 +744,181 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
     selectedArrivalTransition,
     selectedArrivalRunwayName,
   ]);
+  const currentWorkflowStageLabel = useMemo(() => {
+    if (selectedApproachProcedure) {
+      return isArrivalApproachConfirmed ? "Approach confirmed" : "Review and confirm approach";
+    }
+
+    if (selectedArrivalTransition) {
+      return isArrivalTransitionConfirmed ? "Transition locked, choose approach" : "Review and confirm transition";
+    }
+
+    if (selectedArrivalProcedure) {
+      return isArrivalProcedureConfirmed ? "STAR locked, choose transition" : "Review and confirm STAR";
+    }
+
+    if (selectedArrivalRunwayName) {
+      return "Choose arrival STAR on the map";
+    }
+
+    if (selectedDepartureProcedure) {
+      return isDepartureProcedureConfirmed ? "SID locked, choose arrival runway" : "Review and confirm SID";
+    }
+
+    if (selectedDepartureRunwayName) {
+      return "Choose departure SID on the map";
+    }
+
+    if (activeCandidateIndex !== null) {
+      return "Choose departure runway";
+    }
+
+    return "Select a candidate route";
+  }, [
+    activeCandidateIndex,
+    isArrivalApproachConfirmed,
+    isArrivalProcedureConfirmed,
+    isArrivalTransitionConfirmed,
+    isDepartureProcedureConfirmed,
+    selectedApproachProcedure,
+    selectedArrivalProcedure,
+    selectedArrivalRunwayName,
+    selectedArrivalTransition,
+    selectedDepartureProcedure,
+    selectedDepartureRunwayName,
+  ]);
+  const workflowSteps = useMemo(
+    () => [
+      {
+        label: "Candidate",
+        detail: activeCandidateIndex !== null ? `Candidate ${activeCandidateIndex + 1} is pinned on the map.` : "Choose one route option first.",
+        isComplete: activeCandidateIndex !== null,
+        isActive: activeCandidateIndex === null,
+      },
+      {
+        label: "Departure",
+        detail: selectedDepartureProcedure
+          ? `${selectedDepartureProcedure.name}${isDepartureProcedureConfirmed ? " locked in." : " selected on the map."}`
+          : selectedDepartureRunwayName
+            ? `RWY ${selectedDepartureRunwayName} selected. Pick a SID next.`
+            : "Choose departure runway, then pick a SID.",
+        isComplete: Boolean(selectedDepartureProcedure),
+        isActive: activeCandidateIndex !== null && !selectedDepartureProcedure,
+      },
+      {
+        label: "Arrival",
+        detail: selectedArrivalProcedure
+          ? `${selectedArrivalProcedure.name}${isArrivalProcedureConfirmed ? " locked in." : " selected on the map."}`
+          : selectedArrivalRunwayName
+            ? `RWY ${selectedArrivalRunwayName} selected. Pick a STAR next.`
+            : "Choose arrival runway, then pick a STAR.",
+        isComplete: Boolean(selectedArrivalProcedure),
+        isActive: Boolean(selectedDepartureProcedure) && !selectedArrivalProcedure,
+      },
+      {
+        label: "Transition",
+        detail: selectedArrivalTransition
+          ? `${selectedArrivalTransition.name}${isArrivalTransitionConfirmed ? " locked in." : " selected on the map."}`
+          : "Transition options unlock after STAR selection.",
+        isComplete: Boolean(selectedArrivalTransition),
+        isActive: Boolean(selectedArrivalProcedure) && !selectedArrivalTransition,
+      },
+      {
+        label: "Approach",
+        detail: selectedApproachProcedure
+          ? `${selectedApproachProcedure.name}${isArrivalApproachConfirmed ? " locked in." : " selected on the map."}`
+          : "Final approach unlocks after transition selection.",
+        isComplete: Boolean(selectedApproachProcedure),
+        isActive: Boolean(selectedArrivalTransition) && !selectedApproachProcedure,
+      },
+    ],
+    [
+      activeCandidateIndex,
+      isArrivalApproachConfirmed,
+      isArrivalProcedureConfirmed,
+      isArrivalTransitionConfirmed,
+      isDepartureProcedureConfirmed,
+      selectedApproachProcedure,
+      selectedArrivalProcedure,
+      selectedArrivalRunwayName,
+      selectedArrivalTransition,
+      selectedDepartureProcedure,
+      selectedDepartureRunwayName,
+    ],
+  );
+  const selectionSnapshot = useMemo(
+    () => [
+      {
+        label: "Departure runway",
+        value: selectedDepartureRunwayName ? `RWY ${selectedDepartureRunwayName}` : "Pending",
+        hint: selectedDepartureRunwayName ? "Runway-first departure setup" : "Choose after pinning a candidate",
+        tone: "emerald" as const,
+      },
+      {
+        label: "SID",
+        value: formatSelectionWithRunway(selectedDepartureProcedure?.name, selectedDepartureProcedureRunwayLabel) ?? "Pending",
+        hint: selectedDepartureProcedure
+          ? isDepartureProcedureConfirmed
+            ? "Confirmed and highlighted"
+            : "Selected on the map"
+          : "Map selection after runway choice",
+        tone: "emerald" as const,
+      },
+      {
+        label: "Arrival runway",
+        value: selectedArrivalRunwayName ? `RWY ${selectedArrivalRunwayName}` : "Pending",
+        hint: selectedArrivalRunwayName ? "Runway-first arrival setup" : "Choose after SID completion",
+        tone: "amber" as const,
+      },
+      {
+        label: "STAR",
+        value: formatSelectionWithRunway(selectedArrivalProcedure?.name, selectedArrivalProcedureRunwayLabel) ?? "Pending",
+        hint: selectedArrivalProcedure
+          ? isArrivalProcedureConfirmed
+            ? "Confirmed and highlighted"
+            : "Selected on the map"
+          : "Map selection after arrival runway",
+        tone: "amber" as const,
+      },
+      {
+        label: "Transition",
+        value:
+          formatSelectionWithRunway(selectedArrivalTransition?.name, selectedArrivalTransitionRunwayLabel) ?? "Pending",
+        hint: selectedArrivalTransition
+          ? isArrivalTransitionConfirmed
+            ? "Confirmed and highlighted"
+            : "Selected on the map"
+          : "Available after STAR selection",
+        tone: "orange" as const,
+      },
+      {
+        label: "Approach",
+        value: formatSelectionWithRunway(selectedApproachProcedure?.name, selectedApproachProcedureRunwayLabel) ?? "Pending",
+        hint: selectedApproachProcedure
+          ? isArrivalApproachConfirmed
+            ? "Confirmed and highlighted"
+            : "Selected on the map"
+          : "Available after transition selection",
+        tone: "fuchsia" as const,
+      },
+    ],
+    [
+      isArrivalApproachConfirmed,
+      isArrivalProcedureConfirmed,
+      isArrivalTransitionConfirmed,
+      isDepartureProcedureConfirmed,
+      selectedApproachProcedure?.name,
+      selectedApproachProcedureRunwayLabel,
+      selectedArrivalProcedure?.name,
+      selectedArrivalProcedureRunwayLabel,
+      selectedArrivalRunwayName,
+      selectedArrivalTransition?.name,
+      selectedArrivalTransitionRunwayLabel,
+      selectedDepartureProcedure?.name,
+      selectedDepartureProcedureRunwayLabel,
+      selectedDepartureRunwayName,
+    ],
+  );
   const routePreviewSelection = useMemo<RoutePreviewSelection | null>(
     () =>
       activeCandidate
@@ -771,6 +1046,8 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
       setSelectedArrivalTransitionId(null);
       setIsDepartureProcedureConfirmed(false);
       setIsArrivalProcedureConfirmed(false);
+      setIsArrivalTransitionConfirmed(false);
+      setIsArrivalApproachConfirmed(false);
       setPlanningError(null);
       planningAbortRef.current?.abort();
       return;
@@ -846,6 +1123,8 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
   useEffect(() => {
     if (!selectedArrivalProcedureId && selectedArrivalTransitionId) {
       setSelectedArrivalTransitionId(null);
+      setIsArrivalTransitionConfirmed(false);
+      setIsArrivalApproachConfirmed(false);
     }
   }, [selectedArrivalProcedureId, selectedArrivalTransitionId]);
 
@@ -854,6 +1133,8 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
       const stillAvailable = availableArrivalTransitions.some((transition) => transition.id === selectedArrivalTransitionId);
       if (!stillAvailable) {
         setSelectedArrivalTransitionId(null);
+        setIsArrivalTransitionConfirmed(false);
+        setIsArrivalApproachConfirmed(false);
       }
     }
   }, [availableArrivalTransitions, selectedArrivalTransitionId, selectedArrivalRunwayName]);
@@ -861,6 +1142,7 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
   useEffect(() => {
     if (!selectedArrivalTransitionId && selectedApproachProcedureId) {
       setSelectedApproachProcedureId(null);
+      setIsArrivalApproachConfirmed(false);
     }
   }, [selectedArrivalTransitionId, selectedApproachProcedureId]);
 
@@ -869,6 +1151,7 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
       const stillAvailable = availableArrivalApproachProcedures.some((procedure) => procedure.id === selectedApproachProcedureId);
       if (!stillAvailable) {
         setSelectedApproachProcedureId(null);
+        setIsArrivalApproachConfirmed(false);
       }
     }
   }, [availableArrivalApproachProcedures, selectedApproachProcedureId, selectedArrivalRunwayName]);
@@ -881,7 +1164,9 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
     if (planningSelection.kind === "transition") {
       if (availableArrivalTransitions.some((transition) => transition.id === planningSelection.id)) {
         setSelectedArrivalTransitionId(planningSelection.id);
+        setIsArrivalTransitionConfirmed(false);
         setSelectedApproachProcedureId(null);
+        setIsArrivalApproachConfirmed(false);
       }
       return;
     }
@@ -896,12 +1181,15 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
       setSelectedArrivalProcedureId(planningSelection.id);
       setIsArrivalProcedureConfirmed(false);
       setSelectedArrivalTransitionId(null);
+      setIsArrivalTransitionConfirmed(false);
       setSelectedApproachProcedureId(null);
+      setIsArrivalApproachConfirmed(false);
       return;
     }
 
     if (availableArrivalApproachProcedures.some((procedure) => procedure.id === planningSelection.id)) {
       setSelectedApproachProcedureId(planningSelection.id);
+      setIsArrivalApproachConfirmed(false);
     }
   }, [
     availableArrivalApproachProcedures,
@@ -919,6 +1207,8 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
     setSelectedApproachProcedureId(null);
     setIsDepartureProcedureConfirmed(false);
     setIsArrivalProcedureConfirmed(false);
+    setIsArrivalTransitionConfirmed(false);
+    setIsArrivalApproachConfirmed(false);
     setSelectedDepartureRunwayName(null);
     setSelectedArrivalRunwayName(null);
     setPlanningError(null);
@@ -932,6 +1222,8 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
     setSelectedApproachProcedureId(null);
     setIsDepartureProcedureConfirmed(false);
     setIsArrivalProcedureConfirmed(false);
+    setIsArrivalTransitionConfirmed(false);
+    setIsArrivalApproachConfirmed(false);
     setDeparturePlanningData(null);
     setArrivalPlanningData(null);
     setSelectedDepartureRunwayName(null);
@@ -975,6 +1267,8 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
     setSelectedApproachProcedureId(null);
     setIsDepartureProcedureConfirmed(false);
     setIsArrivalProcedureConfirmed(false);
+    setIsArrivalTransitionConfirmed(false);
+    setIsArrivalApproachConfirmed(false);
     setDeparturePlanningData(null);
     setArrivalPlanningData(null);
     setSelectedDepartureRunwayName(null);
@@ -1007,59 +1301,84 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
 
   return (
     <section className="grid gap-4">
-      <div className="rounded-[24px] border border-slate-700/60 bg-slate-950/60 p-5">
-        <p className="section-kicker">Route Planner</p>
-        <h1 className="hero-title mt-2 text-[1.7rem] leading-none sm:text-[2rem]">Route Desk</h1>
-        <p className="support-copy mt-3 text-sm">
-          Route planning stays first. After you pin one route, continue with runway-first SID, STAR, transition, and approach selection.
-        </p>
-        <p className="support-copy mt-2 text-sm">
-          Workflow: select a route candidate, choose departure runway, pick a SID on the map, then choose arrival runway, STAR, transition, and approach in order.
-        </p>
+      <div className="rounded-[24px] border border-slate-700/60 bg-slate-950/60 p-5 shadow-[0_24px_54px_rgba(2,8,23,0.24)]">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <p className="section-kicker">Route Planner</p>
+            <h1 className="hero-title mt-2 text-[1.7rem] leading-none sm:text-[2rem]">Route Desk</h1>
+            <p className="support-copy mt-3 text-sm">
+              Route planning stays first. After you pin one route, continue with runway-first SID, STAR, transition, and approach selection.
+            </p>
+            <p className="support-copy mt-2 text-sm">
+              Workflow: select a route candidate, choose departure runway, pick a SID on the map, then choose arrival runway, STAR, transition, and approach in order.
+            </p>
+          </div>
+          <div className="grid w-full gap-3 sm:w-auto sm:min-w-[230px]">
+            <div className="status-tile">
+              <div className="flex items-center justify-between gap-3">
+                <p className="stat-label m-0">Workflow</p>
+                <span className="rounded-full border border-cyan-300/25 bg-cyan-300/12 px-2.5 py-1 text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-cyan-50">
+                  Live
+                </span>
+              </div>
+              <p className="m-0 text-sm text-slate-100">{currentWorkflowStageLabel}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-3 lg:grid-cols-5">
+          {workflowSteps.map((step) => (
+            <WorkflowStepCard
+              key={step.label}
+              label={step.label}
+              detail={step.detail}
+              isActive={step.isActive}
+              isComplete={step.isComplete}
+            />
+          ))}
+        </div>
 
         <form className="mt-5 grid gap-4" onSubmit={handleSubmit}>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="grid gap-2">
+          <div className="grid gap-3 xl:grid-cols-4">
+            <label className="grid gap-2 xl:col-span-1">
               <span className="text-xs uppercase tracking-[0.26em] text-slate-400">Departure</span>
               <input
                 value={departure}
                 onChange={(event) => setDeparture(event.target.value)}
                 placeholder="ZBAA"
-                className="rounded-2xl border border-slate-700/70 bg-slate-950/75 px-4 py-3 font-mono text-sm text-slate-100 outline-none transition focus:border-sky-300/60"
+                className="input-shell font-mono text-sm"
               />
             </label>
 
-            <label className="grid gap-2">
+            <label className="grid gap-2 xl:col-span-1">
               <span className="text-xs uppercase tracking-[0.26em] text-slate-400">Arrival</span>
               <input
                 value={arrival}
                 onChange={(event) => setArrival(event.target.value)}
                 placeholder="ZSPD"
-                className="rounded-2xl border border-slate-700/70 bg-slate-950/75 px-4 py-3 font-mono text-sm text-slate-100 outline-none transition focus:border-sky-300/60"
+                className="input-shell font-mono text-sm"
               />
             </label>
-          </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="grid gap-2">
+            <label className="grid gap-2 xl:col-span-1">
               <span className="text-xs uppercase tracking-[0.26em] text-slate-400">Cruise Alt</span>
               <input
                 value={cruiseAltitudeFt}
                 onChange={(event) => setCruiseAltitudeFt(event.target.value)}
                 placeholder="36000"
                 inputMode="numeric"
-                className="rounded-2xl border border-slate-700/70 bg-slate-950/75 px-4 py-3 font-mono text-sm text-slate-100 outline-none transition focus:border-sky-300/60"
+                className="input-shell font-mono text-sm"
               />
             </label>
 
-            <label className="grid gap-2">
+            <label className="grid gap-2 xl:col-span-1">
               <span className="text-xs uppercase tracking-[0.26em] text-slate-400">Candidates</span>
               <input
                 value={limit}
                 onChange={(event) => setLimit(event.target.value)}
                 placeholder="5"
                 inputMode="numeric"
-                className="rounded-2xl border border-slate-700/70 bg-slate-950/75 px-4 py-3 font-mono text-sm text-slate-100 outline-none transition focus:border-sky-300/60"
+                className="input-shell font-mono text-sm"
               />
             </label>
           </div>
@@ -1068,7 +1387,7 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
             <button
               type="submit"
               disabled={isLoading}
-              className="rounded-2xl border border-sky-300/30 bg-sky-300/12 px-5 py-3 text-sm font-medium text-sky-100 transition hover:border-sky-200/60 hover:bg-sky-300/20 disabled:cursor-not-allowed disabled:opacity-60"
+              className="cursor-pointer rounded-2xl border border-sky-300/30 bg-sky-300/12 px-5 py-3 text-sm font-medium text-sky-100 transition duration-200 hover:border-sky-200/60 hover:bg-sky-300/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/35 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isLoading ? "Planning..." : "Plan Route"}
             </button>
@@ -1077,7 +1396,7 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
               type="button"
               onClick={clearDisplayedRoute}
               disabled={activeCandidateIndex === null}
-              className="rounded-2xl border border-slate-300/18 bg-slate-900/55 px-5 py-3 text-sm font-medium text-slate-200 transition hover:border-slate-200/40 hover:bg-slate-900/80 disabled:cursor-not-allowed disabled:opacity-45"
+              className="cursor-pointer rounded-2xl border border-slate-300/18 bg-slate-900/55 px-5 py-3 text-sm font-medium text-slate-200 transition duration-200 hover:border-slate-200/40 hover:bg-slate-900/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300/25 disabled:cursor-not-allowed disabled:opacity-45"
             >
               Clear displayed route
             </button>
@@ -1090,7 +1409,7 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
 
       {result ? (
         <>
-          <div className="rounded-[22px] border border-slate-700/60 bg-slate-950/55 p-5">
+          <div className="rounded-[22px] border border-slate-700/60 bg-slate-950/55 p-5 shadow-[0_18px_42px_rgba(2,8,23,0.2)]">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0 flex-1">
                 <p className="section-kicker">Plan Summary</p>
@@ -1110,6 +1429,23 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
               </div>
             </div>
 
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <div className="status-tile">
+                <p className="stat-label m-0">Active Route</p>
+                <p className="m-0 text-sm text-slate-100">
+                  {activeCandidateIndex !== null ? `Candidate ${activeCandidateIndex + 1}` : "No candidate pinned"}
+                </p>
+              </div>
+              <div className="status-tile">
+                <p className="stat-label m-0">Cruise</p>
+                <p className="m-0 font-mono text-[1.02rem] text-slate-100">FL{Math.round(result.cruiseAltitudeFt / 100)}</p>
+              </div>
+              <div className="status-tile">
+                <p className="stat-label m-0">Current Stage</p>
+                <p className="m-0 text-sm text-slate-100">{currentWorkflowStageLabel}</p>
+              </div>
+            </div>
+
             <div className="mt-4 grid gap-2">
               {result.notes.map((note) => (
                 <p
@@ -1122,9 +1458,36 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
             </div>
           </div>
 
+          <div className="rounded-[22px] border border-slate-700/60 bg-slate-950/55 p-5 shadow-[0_18px_42px_rgba(2,8,23,0.2)]">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <p className="section-kicker">Selection Snapshot</p>
+                <h3 className="section-title mt-1 text-[1.08rem]">Current route build state</h3>
+                <p className="mt-2 text-sm text-slate-300">
+                  Keep this panel in view while working through runway, procedure, transition, and approach choices.
+                </p>
+              </div>
+              <div className="rounded-full border border-slate-300/18 bg-slate-300/8 px-3 py-1 text-[0.68rem] uppercase tracking-[0.2em] text-slate-300">
+                {currentWorkflowStageLabel}
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {selectionSnapshot.map((item) => (
+                <SelectionSnapshotField
+                  key={item.label}
+                  label={item.label}
+                  value={item.value}
+                  hint={item.hint}
+                  tone={item.tone}
+                />
+              ))}
+            </div>
+          </div>
+
           {activeCandidateIndex !== null ? (
             <div className="grid gap-4 xl:grid-cols-2">
-              <section className="rounded-[22px] border border-emerald-400/16 bg-emerald-400/6 p-5">
+              <section className="rounded-[22px] border border-emerald-400/16 bg-emerald-400/6 p-5 shadow-[0_18px_42px_rgba(16,185,129,0.08)]">
                 <p className="m-0 text-[0.72rem] uppercase tracking-[0.28em] text-emerald-200/80">Departure Setup</p>
                 <p className="mt-2 text-sm text-slate-300">
                   Choose departure runway first. The map will then display all matching SID procedures with names; click a SID on the map to confirm it.
@@ -1148,6 +1511,26 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
                     ? `${availableDepartureProcedures.length} SID option(s) are available for RWY ${selectedDepartureRunwayName}.`
                     : "Select a departure runway to preview matching SID procedures on the map."}
                 </p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <SelectionSnapshotField
+                    label="Runway"
+                    value={selectedDepartureRunwayName ? `RWY ${selectedDepartureRunwayName}` : "Pending"}
+                    hint={selectedDepartureRunwayName ? "Departure runway selected" : "Choose a runway to unlock SIDs"}
+                    tone="emerald"
+                  />
+                  <SelectionSnapshotField
+                    label="SID status"
+                    value={selectedDepartureProcedure ? selectedDepartureProcedure.name : "Waiting for map pick"}
+                    hint={
+                      selectedDepartureProcedure
+                        ? isDepartureProcedureConfirmed
+                          ? "Confirmed and isolated on the map"
+                          : "Selected on the map, confirm if needed"
+                        : "Pick one SID from the displayed procedures"
+                    }
+                    tone="emerald"
+                  />
+                </div>
                 {selectedDepartureProcedure ? (
                   <div className="mt-2 flex flex-wrap items-center gap-3">
                     <p className="text-sm text-emerald-100">
@@ -1169,7 +1552,7 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
                 ) : null}
               </section>
 
-              <section className="rounded-[22px] border border-amber-400/16 bg-amber-400/6 p-5">
+              <section className="rounded-[22px] border border-amber-400/16 bg-amber-400/6 p-5 shadow-[0_18px_42px_rgba(245,158,11,0.08)]">
                 <p className="m-0 text-[0.72rem] uppercase tracking-[0.28em] text-amber-200/80">Arrival Setup</p>
                 <p className="mt-2 text-sm text-slate-300">
                   Choose arrival runway first. Then the map will display matching STAR procedures; after a STAR is chosen, matching transitions will appear; after a transition is chosen, approach procedures for that runway will be available.
@@ -1185,7 +1568,9 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
                         setSelectedArrivalProcedureId(null);
                         setIsArrivalProcedureConfirmed(false);
                         setSelectedArrivalTransitionId(null);
+                        setIsArrivalTransitionConfirmed(false);
                         setSelectedApproachProcedureId(null);
+                        setIsArrivalApproachConfirmed(false);
                       }}
                     />
                   ))}
@@ -1195,6 +1580,50 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
                     ? `${availableArrivalStarProcedures.length} STAR option(s), ${availableArrivalTransitions.length} transition option(s), and ${availableArrivalApproachProcedures.length} approach option(s) are available for RWY ${selectedArrivalRunwayName}.`
                     : "Select an arrival runway to preview matching STAR procedures on the map."}
                 </p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <SelectionSnapshotField
+                    label="Runway"
+                    value={selectedArrivalRunwayName ? `RWY ${selectedArrivalRunwayName}` : "Pending"}
+                    hint={selectedArrivalRunwayName ? "Arrival runway selected" : "Choose a runway to unlock STARs"}
+                    tone="amber"
+                  />
+                  <SelectionSnapshotField
+                    label="STAR"
+                    value={selectedArrivalProcedure ? selectedArrivalProcedure.name : "Pending"}
+                    hint={
+                      selectedArrivalProcedure
+                        ? isArrivalProcedureConfirmed
+                          ? "Confirmed and isolated on the map"
+                          : "Selected on the map"
+                        : "Choose after runway selection"
+                    }
+                    tone="amber"
+                  />
+                  <SelectionSnapshotField
+                    label="Transition"
+                    value={selectedArrivalTransition ? selectedArrivalTransition.name : "Pending"}
+                    hint={
+                      selectedArrivalTransition
+                        ? isArrivalTransitionConfirmed
+                          ? "Confirmed and isolated on the map"
+                          : "Selected on the map"
+                        : "Unlocks after STAR selection"
+                    }
+                    tone="orange"
+                  />
+                  <SelectionSnapshotField
+                    label="Approach"
+                    value={selectedApproachProcedure ? selectedApproachProcedure.name : "Pending"}
+                    hint={
+                      selectedApproachProcedure
+                        ? isArrivalApproachConfirmed
+                          ? "Confirmed and isolated on the map"
+                          : "Selected on the map"
+                        : "Unlocks after transition selection"
+                    }
+                    tone="fuchsia"
+                  />
+                </div>
                 {selectedArrivalProcedure ? (
                   <div className="mt-2 flex flex-wrap items-center gap-3">
                     <p className="text-sm text-amber-100">
@@ -1215,57 +1644,100 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
                   </div>
                 ) : null}
                 {selectedArrivalTransition ? (
-                  <p className="mt-2 text-sm text-orange-100">
-                    Selected transition: {selectedArrivalTransition.name}
-                    {selectedArrivalTransitionRunwayLabel ? ` / RWY ${selectedArrivalTransitionRunwayLabel}` : ""}
-                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                    <p className="text-sm text-orange-100">
+                      Selected transition: {selectedArrivalTransition.name}
+                      {selectedArrivalTransitionRunwayLabel ? ` / RWY ${selectedArrivalTransitionRunwayLabel}` : ""}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setIsArrivalTransitionConfirmed((current) => !current)}
+                      className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                        isArrivalTransitionConfirmed
+                          ? "border-orange-200/70 bg-orange-300/20 text-orange-50"
+                          : "border-orange-300/30 bg-orange-300/10 text-orange-100 hover:border-orange-200/60 hover:bg-orange-300/18"
+                      }`}
+                    >
+                      {isArrivalTransitionConfirmed ? "Transition confirmed" : "Confirm transition"}
+                    </button>
+                  </div>
                 ) : null}
                 {selectedApproachProcedure ? (
-                  <p className="mt-2 text-sm text-fuchsia-100">
-                    Selected approach: {selectedApproachProcedure.name}
-                    {selectedApproachProcedureRunwayLabel ? ` / RWY ${selectedApproachProcedureRunwayLabel}` : ""}
-                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                    <p className="text-sm text-fuchsia-100">
+                      Selected approach: {selectedApproachProcedure.name}
+                      {selectedApproachProcedureRunwayLabel ? ` / RWY ${selectedApproachProcedureRunwayLabel}` : ""}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setIsArrivalApproachConfirmed((current) => !current)}
+                      className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                        isArrivalApproachConfirmed
+                          ? "border-fuchsia-200/70 bg-fuchsia-300/20 text-fuchsia-50"
+                          : "border-fuchsia-300/30 bg-fuchsia-300/10 text-fuchsia-100 hover:border-fuchsia-200/60 hover:bg-fuchsia-300/18"
+                      }`}
+                    >
+                      {isArrivalApproachConfirmed ? "Approach confirmed" : "Confirm approach"}
+                    </button>
+                  </div>
                 ) : null}
               </section>
             </div>
           ) : null}
 
           {result.candidates.length > 0 ? (
-            result.candidates.map((candidate, index) => (
-              <CandidateCard
-                key={`${candidate.departure.ident}-${candidate.arrival.ident}-${index}`}
-                candidate={candidate}
-                index={index}
-                isActive={activeCandidateIndex === index}
-                departureSelectionLabel={
-                  activeCandidateIndex === index && selectedDepartureProcedure
-                    ? `${selectedDepartureProcedure.name}${selectedDepartureProcedureRunwayLabel ? ` / RWY ${selectedDepartureProcedureRunwayLabel}` : ""}`
-                    : null
-                }
-                arrivalSelectionLabel={
-                  activeCandidateIndex === index && selectedArrivalProcedure
-                    ? `${selectedArrivalProcedure.name}${selectedArrivalProcedureRunwayLabel ? ` / RWY ${selectedArrivalProcedureRunwayLabel}` : ""}`
-                    : null
-                }
-                transitionSelectionLabel={
-                  activeCandidateIndex === index && selectedArrivalTransition
-                    ? `${selectedArrivalTransition.name}${selectedArrivalTransitionRunwayLabel ? ` / RWY ${selectedArrivalTransitionRunwayLabel}` : ""}`
-                    : null
-                }
-                approachSelectionLabel={
-                  activeCandidateIndex === index && selectedApproachProcedure
-                    ? `${selectedApproachProcedure.name}${selectedApproachProcedureRunwayLabel ? ` / RWY ${selectedApproachProcedureRunwayLabel}` : ""}`
-                    : null
-                }
-                approachStatusText={activeCandidateIndex === index ? activeApproachStatusText : null}
-                approachCountText={activeCandidateIndex === index ? activeApproachCountText : null}
-                onActivate={() => {
-                  if (activeCandidateIndex !== index) {
-                    activateCandidate(candidate, index);
-                  }
-                }}
-              />
-            ))
+            <div className="rounded-[22px] border border-slate-700/60 bg-slate-950/55 p-5 shadow-[0_18px_42px_rgba(2,8,23,0.2)]">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <p className="section-kicker">Route Candidates</p>
+                  <h3 className="section-title mt-1 text-[1.08rem]">Pick the route backbone before procedure work</h3>
+                  <p className="mt-2 text-sm text-slate-300">
+                    Candidate cards keep the airway backbone readable while the live setup panels above handle runway-first SID, STAR, transition, and approach decisions.
+                  </p>
+                </div>
+                <div className="rounded-full border border-slate-300/18 bg-slate-300/8 px-3 py-1 text-[0.68rem] uppercase tracking-[0.2em] text-slate-300">
+                  {result.candidates.length} option(s)
+                </div>
+              </div>
+
+              <div className="scroll-panel mt-4 grid max-h-[56rem] gap-4 overflow-y-auto pr-1">
+                {result.candidates.map((candidate, index) => (
+                  <CandidateCard
+                    key={`${candidate.departure.ident}-${candidate.arrival.ident}-${index}`}
+                    candidate={candidate}
+                    index={index}
+                    isActive={activeCandidateIndex === index}
+                    departureSelectionLabel={
+                      activeCandidateIndex === index && selectedDepartureProcedure
+                        ? `${selectedDepartureProcedure.name}${selectedDepartureProcedureRunwayLabel ? ` / RWY ${selectedDepartureProcedureRunwayLabel}` : ""}`
+                        : null
+                    }
+                    arrivalSelectionLabel={
+                      activeCandidateIndex === index && selectedArrivalProcedure
+                        ? `${selectedArrivalProcedure.name}${selectedArrivalProcedureRunwayLabel ? ` / RWY ${selectedArrivalProcedureRunwayLabel}` : ""}`
+                        : null
+                    }
+                    transitionSelectionLabel={
+                      activeCandidateIndex === index && selectedArrivalTransition
+                        ? `${selectedArrivalTransition.name}${selectedArrivalTransitionRunwayLabel ? ` / RWY ${selectedArrivalTransitionRunwayLabel}` : ""}`
+                        : null
+                    }
+                    approachSelectionLabel={
+                      activeCandidateIndex === index && selectedApproachProcedure
+                        ? `${selectedApproachProcedure.name}${selectedApproachProcedureRunwayLabel ? ` / RWY ${selectedApproachProcedureRunwayLabel}` : ""}`
+                        : null
+                    }
+                    approachStatusText={activeCandidateIndex === index ? activeApproachStatusText : null}
+                    approachCountText={activeCandidateIndex === index ? activeApproachCountText : null}
+                    onActivate={() => {
+                      if (activeCandidateIndex !== index) {
+                        activateCandidate(candidate, index);
+                      }
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
           ) : (
             <div className="rounded-[22px] border border-slate-700/60 bg-slate-950/55 p-5">
               <p className="m-0 text-sm text-slate-300">
