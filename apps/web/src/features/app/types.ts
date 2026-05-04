@@ -6,6 +6,8 @@ import type {
   ProcedureKind,
   ProcedureSummary,
   RoutePlanCandidate,
+  TransitionGeometryResponse,
+  TransitionSummary,
 } from "../../types/api";
 
 export type LayerVisibility = {
@@ -50,10 +52,20 @@ export type RoutePreviewSelection = {
   candidate: RoutePlanCandidate;
   departureProcedureId: number | null;
   arrivalProcedureId: number | null;
+  arrivalTransitionId: number | null;
   approachProcedureId: number | null;
 };
 
-export type RouteProcedureSelectionStage = "departure" | "arrival-star" | "arrival-approach";
+export type RoutePlanningSelection = {
+  kind: "procedure" | "transition";
+  id: number;
+};
+
+export type RouteProcedureSelectionStage =
+  | "departure"
+  | "arrival-star"
+  | "arrival-transition"
+  | "arrival-approach";
 
 export type RoutePlanningProcedureGroup = {
   airportIdent: string;
@@ -62,6 +74,15 @@ export type RoutePlanningProcedureGroup = {
   displayedProcedureIds: number[];
   selectedProcedureId: number | null;
   displayedProcedures: ProcedureGeometryResponse[];
+};
+
+export type RoutePlanningTransitionGroup = {
+  airportIdent: string;
+  runwayName: string | null;
+  transitions: TransitionSummary[];
+  displayedTransitionIds: number[];
+  selectedTransitionId: number | null;
+  displayedTransitions: TransitionGeometryResponse[];
 };
 
 export type RoutePlanningOverlay = {
@@ -73,6 +94,7 @@ export type RoutePlanningOverlay = {
   selectedArrivalRunwayName: string | null;
   departure: RoutePlanningProcedureGroup | null;
   arrivalStar: RoutePlanningProcedureGroup | null;
+  arrivalTransition: RoutePlanningTransitionGroup | null;
   arrivalApproach: RoutePlanningProcedureGroup | null;
   activeStage: RouteProcedureSelectionStage | null;
 };
@@ -81,6 +103,7 @@ export type RouteMapOverlay = {
   selection: RoutePreviewSelection;
   departureProcedure: ProcedureGeometryResponse | null;
   arrivalProcedure: ProcedureGeometryResponse | null;
+  arrivalTransition: TransitionGeometryResponse | null;
   approachProcedure: ProcedureGeometryResponse | null;
   planning: RoutePlanningOverlay | null;
 };

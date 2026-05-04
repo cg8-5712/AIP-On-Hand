@@ -164,6 +164,35 @@ pub struct AirportProceduresResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct TransitionSummary {
+    pub id: i64,
+    pub airport_ident: String,
+    pub airport_name: String,
+    pub approach_id: i64,
+    pub approach_name: String,
+    pub runway_name: Option<String>,
+    pub name: String,
+    pub transition_type: String,
+    pub legs: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransitionGeometryResponse {
+    pub summary: TransitionSummary,
+    pub airport: ProcedureAirport,
+    pub path: Vec<ProcedureLegPoint>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AirportTransitionsResponse {
+    pub airport: ProcedureAirport,
+    pub transitions: Vec<TransitionSummary>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SearchResultItem {
     pub id: String,
     pub entity_type: SearchEntityType,

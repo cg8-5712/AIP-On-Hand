@@ -2,6 +2,7 @@ import type {
   AirportRunwayEnd,
   AirportWeatherOverviewResponse,
   AirportProceduresResponse,
+  AirportTransitionsResponse,
   Bounds,
   EaipAirportChartsResponse,
   EaipCatalogResponse,
@@ -12,6 +13,7 @@ import type {
   ProcedureGeometryResponse,
   RoutePlanResponse,
   SearchResponse,
+  TransitionGeometryResponse,
   VersionResponse,
 } from "../types/api";
 
@@ -258,9 +260,23 @@ export function getAirportRunwayEnds(airportIdent: string, options?: RequestOpti
   );
 }
 
+export function getAirportTransitions(airportIdent: string, options?: RequestOptions) {
+  return requestJson<AirportTransitionsResponse>(
+    `/api/v1/airports/${encodeURIComponent(airportIdent)}/transitions`,
+    options,
+  );
+}
+
 export function getProcedureGeometry(procedureId: number, options?: RequestOptions) {
   return requestJson<ProcedureGeometryResponse>(
     `/api/v1/procedures/${procedureId}`,
+    options,
+  );
+}
+
+export function getTransitionGeometry(transitionId: number, options?: RequestOptions) {
+  return requestJson<TransitionGeometryResponse>(
+    `/api/v1/transitions/${transitionId}`,
     options,
   );
 }

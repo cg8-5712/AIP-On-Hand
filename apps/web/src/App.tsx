@@ -12,6 +12,8 @@ import {
   type RouteMapOverlay,
   type RoutePlanningOverlay,
   type RoutePlanningProcedureGroup,
+  type RoutePlanningSelection,
+  type RoutePlanningTransitionGroup,
   type RoutePreviewSelection,
   type ViewportState,
 } from "./features/app/types";
@@ -32,6 +34,7 @@ import {
   getHealth,
   getMapLayers,
   getProcedureGeometry,
+  getTransitionGeometry,
   getVersion,
   pickEaipPackage,
   searchNavdata,
@@ -48,6 +51,7 @@ import type {
   MapLayersResponse,
   ProcedureGeometryResponse,
   SearchResultItem,
+  TransitionGeometryResponse,
   VersionResponse,
 } from "./types/api";
 
@@ -82,13 +86,15 @@ function routeOverlayPoints(overlay: RouteMapOverlay): LatLon[] {
   for (const geometry of [
     overlay.departureProcedure,
     overlay.arrivalProcedure,
+    overlay.arrivalTransition,
     overlay.approachProcedure,
   ]) {
     if (!geometry) {
       continue;
     }
 
-    for (const point of [...geometry.path, ...geometry.missedPath]) {
+    const missedPoints = "missedPath" in geometry ? geometry.missedPath : [];
+    for (const point of [...geometry.path, ...missedPoints]) {
       points.push(point.position);
     }
   }
@@ -118,6 +124,28 @@ function mergePlanningProcedureGroup(
   };
 }
 
+function sameTransitionIdList(left: number[], right: number[]) {
+  return left.length === right.length && left.every((transitionId, index) => transitionId === right[index]);
+}
+
+function mergePlanningTransitionGroup(
+  current: RoutePlanningTransitionGroup | null,
+  next: RoutePlanningTransitionGroup | null,
+) {
+  if (!next) {
+    return null;
+  }
+
+  if (!current || !sameTransitionIdList(current.displayedTransitionIds, next.displayedTransitionIds)) {
+    return next;
+  }
+
+  return {
+    ...next,
+    displayedTransitions: current.displayedTransitions,
+  };
+}
+
 function mergeRoutePlanningOverlay(current: RoutePlanningOverlay | null, next: RoutePlanningOverlay | null) {
   if (!next) {
     return null;
@@ -127,6 +155,7 @@ function mergeRoutePlanningOverlay(current: RoutePlanningOverlay | null, next: R
     ...next,
     departure: mergePlanningProcedureGroup(current?.departure ?? null, next.departure),
     arrivalStar: mergePlanningProcedureGroup(current?.arrivalStar ?? null, next.arrivalStar),
+    arrivalTransition: mergePlanningTransitionGroup(current?.arrivalTransition ?? null, next.arrivalTransition),
     arrivalApproach: mergePlanningProcedureGroup(current?.arrivalApproach ?? null, next.arrivalApproach),
   };
 }
@@ -166,7 +195,7 @@ export default function App() {
   const [selectedRoutePreview, setSelectedRoutePreview] = useState<RoutePreviewSelection | null>(null);
   const [routePlanningOverlay, setRoutePlanningOverlay] = useState<RoutePlanningOverlay | null>(null);
   const [routeMapOverlay, setRouteMapOverlay] = useState<RouteMapOverlay | null>(null);
-  const [planningProcedureSelectionId, setPlanningProcedureSelectionId] = useState<number | null>(null);
+  const [planningSelection, setPlanningSelection] = useState<RoutePlanningSelection | null>(null);
   const deferredAirportFilter = useDeferredValue(airportFilter);
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const focusRequestIdRef = useRef(0);
@@ -187,6 +216,7 @@ export default function App() {
   const planningDisplayedProcedureKey = [
     routePlanningOverlay?.departure?.displayedProcedureIds.join(",") ?? "",
     routePlanningOverlay?.arrivalStar?.displayedProcedureIds.join(",") ?? "",
+    routePlanningOverlay?.arrivalTransition?.displayedTransitionIds.join(",") ?? "",
     routePlanningOverlay?.arrivalApproach?.displayedProcedureIds.join(",") ?? "",
   ].join("|");
 
@@ -437,17 +467,28 @@ export default function App() {
         ...(planning.arrivalStar?.displayedProcedureIds ?? []),
         ...(planning.arrivalApproach?.displayedProcedureIds ?? []),
       ].filter((procedureId, index, allIds) => procedureId > 0 && allIds.indexOf(procedureId) === index);
+      const transitionIds = [
+        ...(planning.arrivalTransition?.displayedTransitionIds ?? []),
+      ].filter((transitionId, index, allIds) => transitionId > 0 && allIds.indexOf(transitionId) === index);
 
       try {
-        const geometries = await Promise.all(
+        const [procedureGeometries, transitionGeometries] = await Promise.all([
+          Promise.all(
           procedureIds.map((procedureId) => getProcedureGeometry(procedureId, { signal: controller.signal })),
-        );
+          ),
+          Promise.all(
+            transitionIds.map((transitionId) => getTransitionGeometry(transitionId, { signal: controller.signal })),
+          ),
+        ]);
 
         if (controller.signal.aborted) {
           return;
         }
 
-        const geometryById = new Map(geometries.map((geometry) => [geometry.summary.id, geometry]));
+        const geometryById = new Map(procedureGeometries.map((geometry) => [geometry.summary.id, geometry]));
+        const transitionGeometryById = new Map(
+          transitionGeometries.map((geometry) => [geometry.summary.id, geometry]),
+        );
         setRoutePlanningOverlay((current) => {
           if (!current) {
             return current;
@@ -469,6 +510,14 @@ export default function App() {
                   displayedProcedures: current.arrivalStar.displayedProcedureIds
                     .map((procedureId) => geometryById.get(procedureId))
                     .filter((geometry): geometry is ProcedureGeometryResponse => Boolean(geometry)),
+                }
+              : null,
+            arrivalTransition: current.arrivalTransition
+              ? {
+                  ...current.arrivalTransition,
+                  displayedTransitions: current.arrivalTransition.displayedTransitionIds
+                    .map((transitionId) => transitionGeometryById.get(transitionId))
+                    .filter((geometry): geometry is TransitionGeometryResponse => Boolean(geometry)),
                 }
               : null,
             arrivalApproach: current.arrivalApproach
@@ -516,10 +565,19 @@ export default function App() {
         return getProcedureGeometry(procedureId, { signal: controller.signal });
       };
 
+      const loadTransition = async (transitionId: number | null) => {
+        if (!transitionId) {
+          return null;
+        }
+
+        return getTransitionGeometry(transitionId, { signal: controller.signal });
+      };
+
       try {
-        const [departureProcedure, arrivalProcedure, approachProcedure] = await Promise.all([
+        const [departureProcedure, arrivalProcedure, arrivalTransition, approachProcedure] = await Promise.all([
           loadGeometry(currentSelection.departureProcedureId),
           loadGeometry(currentSelection.arrivalProcedureId),
+          loadTransition(currentSelection.arrivalTransitionId),
           loadGeometry(currentSelection.approachProcedureId),
         ]);
 
@@ -531,6 +589,7 @@ export default function App() {
           selection: currentSelection,
           departureProcedure,
           arrivalProcedure,
+          arrivalTransition,
           approachProcedure,
           planning: routePlanningOverlay,
         });
@@ -950,7 +1009,7 @@ export default function App() {
 
               <div className={activePage === "route" ? "block" : "hidden"} aria-hidden={activePage !== "route"}>
                 <RoutePage
-                  planningProcedureSelectionId={planningProcedureSelectionId}
+                  planningSelection={planningSelection}
                   onRoutePreviewChange={(selection, planning) => {
                     setSelectedRoutePreview(selection);
                     setRoutePlanningOverlay((current) => mergeRoutePlanningOverlay(current, planning ?? null));
@@ -999,10 +1058,10 @@ export default function App() {
               onFocusRequestHandled={(requestId) => {
                 setFocusRequest((current) => (current?.requestId === requestId ? null : current));
               }}
-              onPlanningProcedureSelect={(procedureId) => {
-                setPlanningProcedureSelectionId(null);
+              onPlanningProcedureSelect={(selection) => {
+                setPlanningSelection(null);
                 queueMicrotask(() => {
-                  setPlanningProcedureSelectionId(procedureId);
+                  setPlanningSelection(selection);
                 });
               }}
             />

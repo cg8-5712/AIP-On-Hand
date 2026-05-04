@@ -483,6 +483,23 @@ async fn airport_procedures(
     Ok(Json(payload))
 }
 
+#[get("/api/v1/airports/{airport_ident}/transitions")]
+async fn airport_transitions(
+    state: Data<AppState>,
+    airport_ident: Path<String>,
+) -> Result<Json<aip_domain::AirportTransitionsResponse>, ApiError> {
+    let airport_ident = airport_ident.into_inner();
+    let payload = state
+        .nav_db
+        .transitions_for_airport(&airport_ident)
+        .map_err(|error| {
+            ApiError::Internal(format!("failed to query airport transitions: {error}"))
+        })?
+        .ok_or_else(|| ApiError::NotFound(format!("airport `{airport_ident}` was not found")))?;
+
+    Ok(Json(payload))
+}
+
 #[get("/api/v1/airports/{airport_ident}/runway-ends")]
 async fn airport_runway_ends(
     state: Data<AppState>,
@@ -512,6 +529,23 @@ async fn procedure_geometry(
             ApiError::Internal(format!("failed to query procedure geometry: {error}"))
         })?
         .ok_or_else(|| ApiError::NotFound(format!("procedure `{procedure_id}` was not found")))?;
+
+    Ok(Json(payload))
+}
+
+#[get("/api/v1/transitions/{transition_id}")]
+async fn transition_geometry(
+    state: Data<AppState>,
+    transition_id: Path<i64>,
+) -> Result<Json<aip_domain::TransitionGeometryResponse>, ApiError> {
+    let transition_id = transition_id.into_inner();
+    let payload = state
+        .nav_db
+        .transition_geometry(transition_id)
+        .map_err(|error| {
+            ApiError::Internal(format!("failed to query transition geometry: {error}"))
+        })?
+        .ok_or_else(|| ApiError::NotFound(format!("transition `{transition_id}` was not found")))?;
 
     Ok(Json(payload))
 }
@@ -765,9 +799,11 @@ async fn main() -> io::Result<()> {
             .service(eaip_chart_content)
             .service(map_layers)
             .service(airport_procedures)
+            .service(airport_transitions)
             .service(airport_runway_ends)
             .service(airport_overview)
             .service(procedure_geometry)
+            .service(transition_geometry)
             .service(route_plan)
             .service(search)
             .service(airway_segments)

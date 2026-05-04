@@ -7,8 +7,15 @@ import type {
   MapLayersResponse,
   ProcedureGeometryResponse,
   ProcedureKind,
+  TransitionGeometryResponse,
 } from "../../types/api";
-import type { BasemapTone, MapFocusRequest, RouteMapOverlay, RoutePlanningOverlay } from "../app/types";
+import type {
+  BasemapTone,
+  MapFocusRequest,
+  RouteMapOverlay,
+  RoutePlanningOverlay,
+  RoutePlanningSelection,
+} from "../app/types";
 
 type LayerVisibility = {
   airports: boolean;
@@ -37,7 +44,7 @@ type MapViewProps = {
   onViewportChange: (viewport: ViewportState) => void;
   onAirportSelect: (airportIdent: string) => void;
   onFocusRequestHandled: (requestId: number) => void;
-  onPlanningProcedureSelect: (procedureId: number) => void;
+  onPlanningProcedureSelect: (selection: RoutePlanningSelection) => void;
 };
 
 const basemapConfig: Record<BasemapTone, { url: string; attribution: string; subdomains?: string }> = {
@@ -123,6 +130,7 @@ const procedurePalette: Record<ProcedureKind, { line: string; point: string }> =
   approach: { line: "#e879f9", point: "#f5d0fe" },
   procedure: { line: "#94a3b8", point: "#e2e8f0" },
 };
+const transitionPalette = { line: "#f97316", point: "#fdba74" } as const;
 const airwayLabelLimits = {
   baseMaxCount: 100,
   routeMaxCount: 6,
@@ -132,6 +140,7 @@ const airwayLabelLimits = {
 } as const;
 
 type AirwayLabelDirection = "both" | "forward" | "backward";
+type RenderablePlanningGeometry = ProcedureGeometryResponse | TransitionGeometryResponse;
 type AirwayLabelSegment = {
   airwayName: string;
   direction?: string | null;
@@ -962,6 +971,12 @@ export function MapView({
       procedurePalette.star.line,
       procedurePalette.star.point,
     );
+    renderRouteTransition(
+      routeOverlayLayer,
+      routeOverlay.arrivalTransition,
+      transitionPalette.line,
+      transitionPalette.point,
+    );
     renderRouteProcedure(
       routeOverlayLayer,
       routeOverlay.approachProcedure,
@@ -1010,13 +1025,30 @@ export function MapView({
 
       for (const procedure of group.displayedProcedures) {
         const isSelected = group.selectedProcedureId === procedure.summary.id;
-        renderSelectableProcedure(
+        renderSelectablePlanningGeometry(
           map,
           routePlanningLayer,
           procedure,
           style.line,
           style.point,
           isSelected,
+          { kind: "procedure", id: procedure.summary.id },
+          onPlanningProcedureSelect,
+        );
+      }
+    }
+
+    if (planning.arrivalTransition) {
+      for (const transition of planning.arrivalTransition.displayedTransitions) {
+        const isSelected = planning.arrivalTransition.selectedTransitionId === transition.summary.id;
+        renderSelectablePlanningGeometry(
+          map,
+          routePlanningLayer,
+          transition,
+          transitionPalette.line,
+          transitionPalette.point,
+          isSelected,
+          { kind: "transition", id: transition.summary.id },
           onPlanningProcedureSelect,
         );
       }
@@ -1175,6 +1207,20 @@ function renderRouteProcedure(
   renderProcedureGeometry(layer, path, missedPath, lineColor, pointColor, false);
 }
 
+function renderRouteTransition(
+  layer: L.LayerGroup,
+  transition: TransitionGeometryResponse | null,
+  lineColor: string,
+  pointColor: string,
+) {
+  if (!transition) {
+    return;
+  }
+
+  const path = transition.path.map((point) => toDisplayLatLng(point.position));
+  renderProcedureGeometry(layer, path, [], lineColor, pointColor, false);
+}
+
 function renderPlanningRunway(layer: L.LayerGroup, runway: { headingDeg: number; lengthFt: number; location: LatLon; runwayName: string }, color: string) {
   const headingRad = (runway.headingDeg * Math.PI) / 180;
   const halfLengthNm = Math.max(0.35, Math.min(runway.lengthFt / 6076.12 / 2, 3.2));
@@ -1207,28 +1253,28 @@ function renderPlanningRunway(layer: L.LayerGroup, runway: { headingDeg: number;
     .addTo(layer);
 }
 
-function renderSelectableProcedure(
+function renderSelectablePlanningGeometry(
   map: L.Map,
   layer: L.LayerGroup,
-  procedure: ProcedureGeometryResponse,
+  geometry: RenderablePlanningGeometry,
   lineColor: string,
   pointColor: string,
   isSelected: boolean,
-  onPlanningProcedureSelect: (procedureId: number) => void,
+  selection: RoutePlanningSelection,
+  onPlanningProcedureSelect: (selection: RoutePlanningSelection) => void,
 ) {
-  const path = procedure.path.map((point) => toDisplayLatLng(point.position));
-  const missedPath = procedure.missedPath.map((point) => toDisplayLatLng(point.position));
+  const path = geometry.path.map((point) => toDisplayLatLng(point.position));
+  const missedPath = "missedPath" in geometry ? geometry.missedPath.map((point) => toDisplayLatLng(point.position)) : [];
   renderProcedureGeometry(layer, path, missedPath, lineColor, pointColor, isSelected);
 
-  const anchorPoint = procedure.path[Math.floor(procedure.path.length / 2)]?.position ?? procedure.path[0]?.position;
+  const anchorPoint = geometry.path[Math.floor(geometry.path.length / 2)]?.position ?? geometry.path[0]?.position;
   if (anchorPoint) {
-    const procedureId = procedure.summary.id;
     L.marker(toDisplayLatLng(anchorPoint), {
-      icon: createProcedureLabelIcon(procedure.summary.name, lineColor, isSelected),
+      icon: createProcedureLabelIcon(geometry.summary.name, lineColor, isSelected),
       keyboard: false,
       zIndexOffset: isSelected ? 1250 : 1000,
     })
-      .on("click", () => onPlanningProcedureSelect(procedureId))
+      .on("click", () => onPlanningProcedureSelect(selection))
       .addTo(layer);
   }
 
@@ -1239,7 +1285,7 @@ function renderSelectableProcedure(
       opacity: 0.01,
       interactive: true,
     })
-      .on("click", () => onPlanningProcedureSelect(procedure.summary.id))
+      .on("click", () => onPlanningProcedureSelect(selection))
       .addTo(layer);
   }
 
@@ -1251,7 +1297,7 @@ function renderSelectableProcedure(
       interactive: true,
       dashArray: "10 7",
     })
-      .on("click", () => onPlanningProcedureSelect(procedure.summary.id))
+      .on("click", () => onPlanningProcedureSelect(selection))
       .addTo(layer);
   }
 

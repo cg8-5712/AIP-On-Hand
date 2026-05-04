@@ -7,6 +7,7 @@ import type {
   MapFocusRequest,
   RouteMapOverlay,
   RoutePlanningOverlay,
+  RoutePlanningSelection,
   ViewportState,
 } from "../app/types";
 import type {
@@ -37,7 +38,7 @@ type MapStageProps = {
   onAirportInspectorClose: () => void;
   onBasemapToneChange: (tone: BasemapTone) => void;
   onFocusRequestHandled: (requestId: number) => void;
-  onPlanningProcedureSelect: (procedureId: number) => void;
+  onPlanningProcedureSelect: (selection: RoutePlanningSelection) => void;
 };
 
 export function MapStage({

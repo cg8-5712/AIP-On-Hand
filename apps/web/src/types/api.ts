@@ -121,6 +121,23 @@ export type AirportProceduresResponse = {
   procedures: ProcedureSummary[];
 };
 
+export type TransitionSummary = {
+  id: number;
+  airportIdent: string;
+  airportName: string;
+  approachId: number;
+  approachName: string;
+  runwayName?: string | null;
+  name: string;
+  transitionType: string;
+  legs: number;
+};
+
+export type AirportTransitionsResponse = {
+  airport: ProcedureAirport;
+  transitions: TransitionSummary[];
+};
+
 export type ProcedureLegPoint = {
   ident?: string | null;
   legType?: string | null;
@@ -132,6 +149,12 @@ export type ProcedureGeometryResponse = {
   airport: ProcedureAirport;
   path: ProcedureLegPoint[];
   missedPath: ProcedureLegPoint[];
+};
+
+export type TransitionGeometryResponse = {
+  summary: TransitionSummary;
+  airport: ProcedureAirport;
+  path: ProcedureLegPoint[];
 };
 
 export type SearchResultItem = {

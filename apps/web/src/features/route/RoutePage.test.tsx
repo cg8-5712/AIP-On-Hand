@@ -207,6 +207,16 @@ describe("RoutePage", () => {
         },
       ];
     });
+    vi.spyOn(api, "getAirportTransitions").mockResolvedValue({
+      airport: {
+        id: 2,
+        ident: "ZSPD",
+        icao: "ZSPD",
+        name: "Pudong",
+        location: { lon: 121.805, lat: 31.1434 },
+      },
+      transitions: [],
+    });
 
     const { rerender } = render(<RoutePage onRoutePreviewChange={previewSpy} />);
 
@@ -235,6 +245,7 @@ describe("RoutePage", () => {
         expect.objectContaining({
           departureProcedureId: null,
           arrivalProcedureId: null,
+          arrivalTransitionId: null,
           approachProcedureId: null,
         }),
         expect.objectContaining({
@@ -252,6 +263,7 @@ describe("RoutePage", () => {
         expect.objectContaining({
           departureProcedureId: null,
           arrivalProcedureId: null,
+          arrivalTransitionId: null,
           approachProcedureId: null,
         }),
         expect.objectContaining({
@@ -265,13 +277,14 @@ describe("RoutePage", () => {
       );
     });
 
-    rerender(<RoutePage onRoutePreviewChange={previewSpy} planningProcedureSelectionId={71967} />);
+    rerender(<RoutePage onRoutePreviewChange={previewSpy} planningSelection={{ kind: "procedure", id: 71967 }} />);
 
     await waitFor(() => {
       expect(previewSpy).toHaveBeenLastCalledWith(
         expect.objectContaining({
           departureProcedureId: 71967,
           arrivalProcedureId: null,
+          arrivalTransitionId: null,
           approachProcedureId: null,
         }),
         expect.objectContaining({
@@ -401,6 +414,16 @@ describe("RoutePage", () => {
         location: { lon: 116.421, lat: 39.52 },
       },
     ]);
+    vi.spyOn(api, "getAirportTransitions").mockResolvedValue({
+      airport: {
+        id: 10,
+        ident: "ZBAD",
+        icao: "ZBAD",
+        name: "Daxing",
+        location: { lon: 116.4106, lat: 39.5098 },
+      },
+      transitions: [],
+    });
 
     const { container } = render(<RoutePage onRoutePreviewChange={previewSpy} />);
     const routeSection = container.querySelector("section");

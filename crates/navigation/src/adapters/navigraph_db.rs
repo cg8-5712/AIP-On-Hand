@@ -1,10 +1,10 @@
 use aip_domain::{
     AirportCommunication, AirportFeature, AirportProceduresResponse, AirportRunwayEnd,
-    AirwayFeature, LatLon, LayerTruncation, MapLayersResponse, NavDbMetadata, NavaidFeature,
-    ProcedureAirport, ProcedureGeometryResponse, ProcedureKind, ProcedureLegPoint,
-    ProcedureSummary, RouteAirwaySegment, RoutePlanCandidate, RoutePlanResponse,
+    AirportTransitionsResponse, AirwayFeature, LatLon, LayerTruncation, MapLayersResponse,
+    NavDbMetadata, NavaidFeature, ProcedureAirport, ProcedureGeometryResponse, ProcedureKind,
+    ProcedureLegPoint, ProcedureSummary, RouteAirwaySegment, RoutePlanCandidate, RoutePlanResponse,
     RouteProcedureOption, RouteProcedurePoint, SearchEntityType, SearchResponse, SearchResultItem,
-    WaypointFeature,
+    TransitionGeometryResponse, TransitionSummary, WaypointFeature,
 };
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Result};
 use std::{
@@ -145,6 +145,27 @@ impl NavDb {
         }))
     }
 
+    pub fn transitions_for_airport(
+        &self,
+        airport_ident: &str,
+    ) -> Result<Option<AirportTransitionsResponse>> {
+        let connection = self.connect()?;
+        let Some(airport) = query_airport(&connection, airport_ident)? else {
+            return Ok(None);
+        };
+
+        let rows = query_transition_rows_for_airport(&connection, &airport.ident)?;
+        let transitions = rows
+            .iter()
+            .map(transition_summary_from_row)
+            .collect::<Vec<_>>();
+
+        Ok(Some(AirportTransitionsResponse {
+            airport,
+            transitions,
+        }))
+    }
+
     pub fn procedure_geometry(
         &self,
         procedure_id: i64,
@@ -170,6 +191,32 @@ impl NavDb {
             airport,
             path,
             missed_path,
+        }))
+    }
+
+    pub fn transition_geometry(
+        &self,
+        transition_id: i64,
+    ) -> Result<Option<TransitionGeometryResponse>> {
+        let connection = self.connect()?;
+        let Some(row) = query_transition_row_by_id(&connection, transition_id)? else {
+            return Ok(None);
+        };
+
+        let summary = transition_summary_from_row(&row);
+        let airport = ProcedureAirport {
+            id: row.airport_id,
+            ident: row.airport_ident.clone(),
+            icao: row.airport_icao.clone(),
+            name: row.airport_name.clone(),
+            location: row.airport_location,
+        };
+        let path = query_transition_legs(&connection, transition_id)?;
+
+        Ok(Some(TransitionGeometryResponse {
+            summary,
+            airport,
+            path,
         }))
     }
 
@@ -321,6 +368,22 @@ struct ProcedureRow {
     has_missed: bool,
     first_position: Option<LatLon>,
     last_position: Option<LatLon>,
+}
+
+#[derive(Debug, Clone)]
+struct TransitionRow {
+    airport_id: i64,
+    airport_ident: String,
+    airport_icao: Option<String>,
+    airport_name: String,
+    airport_location: LatLon,
+    transition_id: i64,
+    approach_id: i64,
+    approach_name: String,
+    runway_name: Option<String>,
+    transition_type: String,
+    fix_ident: Option<String>,
+    legs: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -957,6 +1020,25 @@ fn query_procedure_row_by_id(
         .optional()
 }
 
+fn query_transition_rows_for_airport(
+    connection: &Connection,
+    airport_ident: &str,
+) -> Result<Vec<TransitionRow>> {
+    let mut statement = connection.prepare(TRANSITION_BASE_QUERY)?;
+    let rows = statement.query_map(params![airport_ident], map_transition_row)?;
+    rows.collect()
+}
+
+fn query_transition_row_by_id(
+    connection: &Connection,
+    transition_id: i64,
+) -> Result<Option<TransitionRow>> {
+    let mut statement = connection.prepare(TRANSITION_BY_ID_QUERY)?;
+    statement
+        .query_row(params![transition_id], map_transition_row)
+        .optional()
+}
+
 fn map_procedure_row(row: &rusqlite::Row<'_>) -> Result<ProcedureRow> {
     Ok(ProcedureRow {
         airport_id: row.get(0)?,
@@ -981,6 +1063,30 @@ fn map_procedure_row(row: &rusqlite::Row<'_>) -> Result<ProcedureRow> {
         has_missed: row.get::<_, i64>(13)? != 0,
         first_position: lat_lon_from_optional(row.get(14)?, row.get(15)?),
         last_position: lat_lon_from_optional(row.get(16)?, row.get(17)?),
+    })
+}
+
+fn map_transition_row(row: &rusqlite::Row<'_>) -> Result<TransitionRow> {
+    Ok(TransitionRow {
+        airport_id: row.get(0)?,
+        airport_ident: row.get(1)?,
+        airport_icao: row.get(2)?,
+        airport_name: row
+            .get::<_, Option<String>>(3)?
+            .unwrap_or_else(|| "Unnamed Airport".to_string()),
+        airport_location: LatLon {
+            lon: row.get(4)?,
+            lat: row.get(5)?,
+        },
+        transition_id: row.get(6)?,
+        approach_id: row.get(7)?,
+        approach_name: row.get::<_, Option<String>>(8)?.unwrap_or_default(),
+        runway_name: row.get(9)?,
+        transition_type: row
+            .get::<_, Option<String>>(10)?
+            .unwrap_or_else(|| "UNKNOWN".to_string()),
+        fix_ident: row.get(11)?,
+        legs: row.get::<_, i64>(12)? as usize,
     })
 }
 
@@ -1031,6 +1137,37 @@ fn query_procedure_legs(
     }
 
     Ok((path, missed_path))
+}
+
+fn query_transition_legs(connection: &Connection, transition_id: i64) -> Result<Vec<ProcedureLegPoint>> {
+    let mut statement = connection.prepare(
+        "
+        select
+          nullif(trim(type), ''),
+          nullif(trim(fix_ident), ''),
+          fix_lonx,
+          fix_laty
+        from transition_leg
+        where
+          transition_id = ?1
+          and fix_lonx is not null
+          and fix_laty is not null
+        order by transition_leg_id asc
+        ",
+    )?;
+
+    let rows = statement.query_map(params![transition_id], |row| {
+        Ok(ProcedureLegPoint {
+            leg_type: row.get(0)?,
+            ident: row.get(1)?,
+            position: LatLon {
+                lon: row.get(2)?,
+                lat: row.get(3)?,
+            },
+        })
+    })?;
+
+    rows.collect()
 }
 
 fn build_route_procedure_points(
@@ -1543,6 +1680,20 @@ fn procedure_summary_from_row(row: &ProcedureRow) -> ProcedureSummary {
     }
 }
 
+fn transition_summary_from_row(row: &TransitionRow) -> TransitionSummary {
+    TransitionSummary {
+        id: row.transition_id,
+        airport_ident: row.airport_ident.clone(),
+        airport_name: row.airport_name.clone(),
+        approach_id: row.approach_id,
+        approach_name: row.approach_name.clone(),
+        runway_name: row.runway_name.clone(),
+        name: transition_display_name(row.fix_ident.as_deref(), &row.transition_type),
+        transition_type: row.transition_type.clone(),
+        legs: row.legs,
+    }
+}
+
 fn procedure_display_name(
     procedure_type: &str,
     procedure_kind: &ProcedureKind,
@@ -1569,6 +1720,20 @@ fn procedure_display_name(
     }
 
     procedure_type.to_string()
+}
+
+fn transition_display_name(fix_ident: Option<&str>, transition_type: &str) -> String {
+    let fix_ident = fix_ident.unwrap_or_default().trim();
+    if !fix_ident.is_empty() {
+        return fix_ident.to_string();
+    }
+
+    let transition_type = transition_type.trim();
+    if !transition_type.is_empty() {
+        return transition_type.to_string();
+    }
+
+    "TRANSITION".to_string()
 }
 
 fn classify_procedure_kind(
@@ -2363,6 +2528,64 @@ select
 from approach a
 join airport ap on ap.airport_id = a.airport_id
 where a.approach_id = ?1
+limit 1
+";
+
+const TRANSITION_BASE_QUERY: &str = "
+select
+  ap.airport_id,
+  ap.ident,
+  nullif(trim(ap.icao), ''),
+  ap.name,
+  ap.lonx,
+  ap.laty,
+  t.transition_id,
+  a.approach_id,
+  coalesce(nullif(trim(a.fix_ident), ''), coalesce(a.arinc_name, '')),
+  nullif(trim(a.runway_name), ''),
+  coalesce(t.type, ''),
+  nullif(trim(t.fix_ident), ''),
+  (
+    select count(*)
+    from transition_leg tl
+    where
+      tl.transition_id = t.transition_id
+      and tl.fix_lonx is not null
+      and tl.fix_laty is not null
+  ) as legs
+from transition t
+join approach a on a.approach_id = t.approach_id
+join airport ap on ap.airport_id = a.airport_id
+where ap.ident = ?1 or coalesce(ap.icao, '') = ?1
+order by a.runway_name asc, coalesce(t.fix_ident, '') asc, a.arinc_name asc
+";
+
+const TRANSITION_BY_ID_QUERY: &str = "
+select
+  ap.airport_id,
+  ap.ident,
+  nullif(trim(ap.icao), ''),
+  ap.name,
+  ap.lonx,
+  ap.laty,
+  t.transition_id,
+  a.approach_id,
+  coalesce(nullif(trim(a.fix_ident), ''), coalesce(a.arinc_name, '')),
+  nullif(trim(a.runway_name), ''),
+  coalesce(t.type, ''),
+  nullif(trim(t.fix_ident), ''),
+  (
+    select count(*)
+    from transition_leg tl
+    where
+      tl.transition_id = t.transition_id
+      and tl.fix_lonx is not null
+      and tl.fix_laty is not null
+  ) as legs
+from transition t
+join approach a on a.approach_id = t.approach_id
+join airport ap on ap.airport_id = a.airport_id
+where t.transition_id = ?1
 limit 1
 ";
 
