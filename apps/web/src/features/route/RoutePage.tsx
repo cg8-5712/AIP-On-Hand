@@ -330,19 +330,19 @@ function ProcedureChip({
 }
 
 function WorkflowStepCard({
+  step,
   label,
-  detail,
   isActive,
   isComplete,
 }: {
+  step: string;
   label: string;
-  detail: string;
   isActive: boolean;
   isComplete: boolean;
 }) {
   return (
     <div
-      className={`rounded-[18px] border px-4 py-3 transition ${
+      className={`min-w-0 rounded-[18px] border px-3 py-3 transition ${
         isActive
           ? "border-cyan-300/45 bg-cyan-300/10 shadow-[0_16px_36px_rgba(56,189,248,0.12)]"
           : isComplete
@@ -350,23 +350,35 @@ function WorkflowStepCard({
             : "border-slate-700/65 bg-slate-950/45"
       }`}
     >
-      <div className="flex items-center justify-between gap-3">
-        <p className={`m-0 text-[0.68rem] uppercase tracking-[0.22em] ${isActive ? "text-cyan-100" : "text-slate-400"}`}>
-          {label}
-        </p>
+      <div className="flex items-center gap-2">
         <span
-          className={`rounded-full border px-2.5 py-0.5 text-[0.62rem] font-semibold uppercase tracking-[0.16em] ${
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-[0.72rem] font-semibold ${
             isActive
-              ? "border-cyan-200/45 bg-cyan-300/16 text-cyan-50"
+              ? "border-cyan-200/45 bg-cyan-300/18 text-cyan-50"
               : isComplete
                 ? "border-emerald-200/30 bg-emerald-300/14 text-emerald-50"
                 : "border-slate-300/18 bg-slate-300/8 text-slate-300"
           }`}
         >
-          {isActive ? "Current" : isComplete ? "Ready" : "Pending"}
+          {step}
         </span>
+        <div className="min-w-0 flex-1">
+          <p
+            className={`m-0 truncate text-[0.68rem] uppercase tracking-[0.16em] ${
+              isActive ? "text-cyan-100" : isComplete ? "text-emerald-100" : "text-slate-400"
+            }`}
+          >
+            {label}
+          </p>
+          <p
+            className={`mt-1 text-[0.72rem] font-medium ${
+              isActive ? "text-cyan-50" : isComplete ? "text-emerald-50" : "text-slate-400"
+            }`}
+          >
+            {isActive ? "Current" : isComplete ? "Ready" : "Pending"}
+          </p>
+        </div>
       </div>
-      <p className={`mt-2 text-sm leading-5 ${isActive || isComplete ? "text-slate-100" : "text-slate-400"}`}>{detail}</p>
     </div>
   );
 }
@@ -801,51 +813,56 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
   const workflowSteps = useMemo(
     () => [
       {
+        step: "01",
         label: "Candidate",
-        detail: activeCandidateIndex !== null ? `Candidate ${activeCandidateIndex + 1} is pinned on the map.` : "Choose one route option first.",
+        detail: activeCandidateIndex !== null ? `Candidate ${activeCandidateIndex + 1} pinned.` : "Choose one route option.",
         isComplete: activeCandidateIndex !== null,
         isActive: activeCandidateIndex === null,
       },
       {
+        step: "02",
         label: "Departure",
         detail: selectedDepartureProcedure
-          ? `${selectedDepartureProcedure.name}${isDepartureProcedureConfirmed ? " locked in." : " selected on the map."}`
+          ? `${selectedDepartureProcedure.name}${isDepartureProcedureConfirmed ? " locked." : " selected."}`
           : selectedDepartureRunwayName
-            ? `RWY ${selectedDepartureRunwayName} selected. Pick a SID next.`
-            : "Choose departure runway, then pick a SID.",
+            ? `RWY ${selectedDepartureRunwayName} selected. Pick a SID.`
+            : "Choose departure runway, then SID.",
         isComplete: Boolean(selectedDepartureProcedure),
         isActive: activeCandidateIndex !== null && !selectedDepartureProcedure,
       },
       {
+        step: "03",
         label: "Arrival",
         detail: selectedArrivalProcedure
-          ? `${selectedArrivalProcedure.name}${isArrivalProcedureConfirmed ? " locked in." : " selected on the map."}`
+          ? `${selectedArrivalProcedure.name}${isArrivalProcedureConfirmed ? " locked." : " selected."}`
           : selectedArrivalRunwayName
-            ? `RWY ${selectedArrivalRunwayName} selected. Pick a STAR next.`
-            : "Choose arrival runway, then pick a STAR.",
+            ? `RWY ${selectedArrivalRunwayName} selected. Pick a STAR.`
+            : "Choose arrival runway, then STAR.",
         isComplete: Boolean(selectedArrivalProcedure),
         isActive: Boolean(selectedDepartureProcedure) && !selectedArrivalProcedure,
       },
       {
+        step: "04",
         label: "Transition",
         detail: selectedArrivalTransition
-          ? `${selectedArrivalTransition.name}${isArrivalTransitionConfirmed ? " locked in." : " selected on the map."}`
-          : "Transition options unlock after STAR selection.",
+          ? `${selectedArrivalTransition.name}${isArrivalTransitionConfirmed ? " locked." : " selected."}`
+          : "Unlocks after STAR.",
         isComplete: Boolean(selectedArrivalTransition),
         isActive: Boolean(selectedArrivalProcedure) && !selectedArrivalTransition,
       },
       {
+        step: "05",
         label: "Approach",
         detail: selectedApproachProcedure
-          ? `${selectedApproachProcedure.name}${isArrivalApproachConfirmed ? " locked in." : " selected on the map."}`
-          : "Final approach unlocks after transition selection.",
+          ? `${selectedApproachProcedure.name}${isArrivalApproachConfirmed ? " locked." : " selected."}`
+          : "Unlocks after transition.",
         isComplete: Boolean(selectedApproachProcedure),
         isActive: Boolean(selectedArrivalTransition) && !selectedApproachProcedure,
       },
     ],
     [
-      activeCandidateIndex,
-      isArrivalApproachConfirmed,
+        activeCandidateIndex,
+        isArrivalApproachConfirmed,
       isArrivalProcedureConfirmed,
       isArrivalTransitionConfirmed,
       isDepartureProcedureConfirmed,
@@ -854,8 +871,8 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
       selectedArrivalRunwayName,
       selectedArrivalTransition,
       selectedDepartureProcedure,
-      selectedDepartureRunwayName,
-    ],
+        selectedDepartureRunwayName,
+      ],
   );
   const selectionSnapshot = useMemo(
     () => [
@@ -1324,7 +1341,7 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
               Workflow: select a route candidate, choose departure runway, pick a SID on the map, then choose arrival runway, STAR, transition, and approach in order.
             </p>
           </div>
-          <div className="grid w-full gap-3 sm:w-auto sm:min-w-[230px]">
+          <div className="grid w-full gap-3 lg:w-auto lg:min-w-[220px]">
             <div className="status-tile">
               <div className="flex items-center justify-between gap-3">
                 <p className="stat-label m-0">Workflow</p>
@@ -1332,26 +1349,44 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
                   Live
                 </span>
               </div>
-              <p className="m-0 text-sm text-slate-100">{currentWorkflowStageLabel}</p>
+              <p className="m-0 text-sm leading-6 text-slate-100">{currentWorkflowStageLabel}</p>
             </div>
           </div>
         </div>
 
-        <div className="mt-5 grid gap-3 lg:grid-cols-5">
-          {workflowSteps.map((step) => (
-            <WorkflowStepCard
-              key={step.label}
-              label={step.label}
-              detail={step.detail}
-              isActive={step.isActive}
-              isComplete={step.isComplete}
-            />
+        <div className="mt-5 grid gap-3 xl:grid-cols-5">
+          {workflowSteps.map((step, index) => (
+            <div key={step.label} className="relative min-w-0">
+              <WorkflowStepCard
+                step={step.step}
+                label={step.label}
+                isActive={step.isActive}
+                isComplete={step.isComplete}
+              />
+              {index < workflowSteps.length - 1 ? (
+                <div className="pointer-events-none absolute right-[-0.45rem] top-1/2 hidden h-px w-2 -translate-y-1/2 bg-gradient-to-r from-cyan-300/30 to-slate-700/0 xl:block" />
+              ) : null}
+            </div>
           ))}
         </div>
 
+        <div className="mt-3 rounded-[18px] border border-slate-700/60 bg-slate-950/42 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="m-0 text-[0.68rem] uppercase tracking-[0.18em] text-cyan-200/80">Current Focus</p>
+            <span className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2.5 py-0.5 text-[0.62rem] font-semibold uppercase tracking-[0.12em] text-cyan-50">
+              {currentWorkflowStageLabel}
+            </span>
+          </div>
+          <p className="mt-2 text-sm leading-6 text-slate-300">
+            {workflowSteps.find((step) => step.isActive)?.detail ??
+              [...workflowSteps].reverse().find((step) => step.isComplete)?.detail ??
+              "Select a candidate route to begin."}
+          </p>
+        </div>
+
         <form className="mt-5 grid gap-4" onSubmit={handleSubmit}>
-          <div className="grid gap-3 xl:grid-cols-4">
-            <label className="grid gap-2 xl:col-span-1">
+          <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
+            <label className="grid gap-2">
               <span className="text-xs uppercase tracking-[0.26em] text-slate-400">Departure</span>
               <input
                 value={departure}
@@ -1361,7 +1396,7 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
               />
             </label>
 
-            <label className="grid gap-2 xl:col-span-1">
+            <label className="grid gap-2">
               <span className="text-xs uppercase tracking-[0.26em] text-slate-400">Arrival</span>
               <input
                 value={arrival}
@@ -1371,7 +1406,7 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
               />
             </label>
 
-            <label className="grid gap-2 xl:col-span-1">
+            <label className="grid gap-2">
               <span className="text-xs uppercase tracking-[0.26em] text-slate-400">Cruise Alt</span>
               <input
                 value={cruiseAltitudeFt}
@@ -1382,7 +1417,7 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
               />
             </label>
 
-            <label className="grid gap-2 xl:col-span-1">
+            <label className="grid gap-2">
               <span className="text-xs uppercase tracking-[0.26em] text-slate-400">Candidates</span>
               <input
                 value={limit}
