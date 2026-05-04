@@ -80,10 +80,36 @@ function formatAirwaySequence(segments: RouteAirwaySegment[]) {
     return "No airway path";
   }
 
-  const sequence = [segments[0].fromIdent];
-  for (const segment of segments) {
-    sequence.push(segment.airwayName);
-    sequence.push(segment.toIdent);
+  const sequence: string[] = [];
+  let groupStartIdent = segments[0].fromIdent;
+  let currentAirwayName = segments[0].airwayName;
+  let groupEndIdent = segments[0].toIdent;
+
+  for (let index = 1; index < segments.length; index += 1) {
+    const segment = segments[index];
+    const isSameAirwayGroup =
+      segment.airwayName === currentAirwayName && segments[index - 1]?.toIdent === segment.fromIdent;
+
+    if (isSameAirwayGroup) {
+      groupEndIdent = segment.toIdent;
+      continue;
+    }
+
+    if (sequence.length === 0) {
+      sequence.push(groupStartIdent, currentAirwayName, groupEndIdent);
+    } else {
+      sequence.push(currentAirwayName, groupEndIdent);
+    }
+
+    groupStartIdent = segment.fromIdent;
+    currentAirwayName = segment.airwayName;
+    groupEndIdent = segment.toIdent;
+  }
+
+  if (sequence.length === 0) {
+    sequence.push(groupStartIdent, currentAirwayName, groupEndIdent);
+  } else {
+    sequence.push(currentAirwayName, groupEndIdent);
   }
 
   return sequence.join(" ");
@@ -363,7 +389,7 @@ function CandidateCard({
 
         <section className="rounded-[20px] border border-sky-400/16 bg-sky-400/6 p-4">
           <p className="m-0 text-[0.72rem] uppercase tracking-[0.28em] text-sky-200/80">Airway</p>
-          <div className="mt-2 grid gap-2">
+          <div className="scroll-panel mt-2 grid max-h-[24rem] gap-2 overflow-y-auto pr-1">
             {candidate.airways.map((segment, segmentIndex) => (
               <div
                 key={`${segment.airwayName}-${segmentIndex}-${segment.fromIdent}-${segment.toIdent}`}
@@ -446,6 +472,8 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
   const [selectedArrivalProcedureId, setSelectedArrivalProcedureId] = useState<number | null>(null);
   const [selectedArrivalTransitionId, setSelectedArrivalTransitionId] = useState<number | null>(null);
   const [selectedApproachProcedureId, setSelectedApproachProcedureId] = useState<number | null>(null);
+  const [isDepartureProcedureConfirmed, setIsDepartureProcedureConfirmed] = useState(false);
+  const [isArrivalProcedureConfirmed, setIsArrivalProcedureConfirmed] = useState(false);
   const [departurePlanningData, setDeparturePlanningData] = useState<AirportPlanningData | null>(null);
   const [arrivalPlanningData, setArrivalPlanningData] = useState<AirportPlanningData | null>(null);
   const [selectedDepartureRunwayName, setSelectedDepartureRunwayName] = useState<string | null>(null);
@@ -515,12 +543,18 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
     [activeCandidateIndex, result],
   );
   const displayedDepartureProcedureIds = useMemo(
-    () => availableDepartureProcedures.map((procedure) => procedure.id),
-    [availableDepartureProcedures],
+    () =>
+      isDepartureProcedureConfirmed && selectedDepartureProcedureId
+        ? [selectedDepartureProcedureId]
+        : availableDepartureProcedures.map((procedure) => procedure.id),
+    [availableDepartureProcedures, isDepartureProcedureConfirmed, selectedDepartureProcedureId],
   );
   const displayedArrivalStarProcedureIds = useMemo(
-    () => availableArrivalStarProcedures.map((procedure) => procedure.id),
-    [availableArrivalStarProcedures],
+    () =>
+      isArrivalProcedureConfirmed && selectedArrivalProcedureId
+        ? [selectedArrivalProcedureId]
+        : availableArrivalStarProcedures.map((procedure) => procedure.id),
+    [availableArrivalStarProcedures, isArrivalProcedureConfirmed, selectedArrivalProcedureId],
   );
   const displayedArrivalTransitionIds = useMemo(
     () => availableArrivalTransitions.map((transition) => transition.id),
@@ -735,6 +769,8 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
       setSelectedDepartureRunwayName(null);
       setSelectedArrivalRunwayName(null);
       setSelectedArrivalTransitionId(null);
+      setIsDepartureProcedureConfirmed(false);
+      setIsArrivalProcedureConfirmed(false);
       setPlanningError(null);
       planningAbortRef.current?.abort();
       return;
@@ -792,6 +828,7 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
       const stillAvailable = availableDepartureProcedures.some((procedure) => procedure.id === selectedDepartureProcedureId);
       if (!stillAvailable) {
         setSelectedDepartureProcedureId(null);
+        setIsDepartureProcedureConfirmed(false);
       }
     }
   }, [availableDepartureProcedures, selectedDepartureProcedureId, selectedDepartureRunwayName]);
@@ -801,6 +838,7 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
       const stillAvailable = availableArrivalStarProcedures.some((procedure) => procedure.id === selectedArrivalProcedureId);
       if (!stillAvailable) {
         setSelectedArrivalProcedureId(null);
+        setIsArrivalProcedureConfirmed(false);
       }
     }
   }, [availableArrivalStarProcedures, selectedArrivalProcedureId, selectedArrivalRunwayName]);
@@ -850,11 +888,13 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
 
     if (availableDepartureProcedures.some((procedure) => procedure.id === planningSelection.id)) {
       setSelectedDepartureProcedureId(planningSelection.id);
+      setIsDepartureProcedureConfirmed(false);
       return;
     }
 
     if (availableArrivalStarProcedures.some((procedure) => procedure.id === planningSelection.id)) {
       setSelectedArrivalProcedureId(planningSelection.id);
+      setIsArrivalProcedureConfirmed(false);
       setSelectedArrivalTransitionId(null);
       setSelectedApproachProcedureId(null);
       return;
@@ -877,6 +917,8 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
     setSelectedArrivalProcedureId(null);
     setSelectedArrivalTransitionId(null);
     setSelectedApproachProcedureId(null);
+    setIsDepartureProcedureConfirmed(false);
+    setIsArrivalProcedureConfirmed(false);
     setSelectedDepartureRunwayName(null);
     setSelectedArrivalRunwayName(null);
     setPlanningError(null);
@@ -888,6 +930,8 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
     setSelectedArrivalProcedureId(null);
     setSelectedArrivalTransitionId(null);
     setSelectedApproachProcedureId(null);
+    setIsDepartureProcedureConfirmed(false);
+    setIsArrivalProcedureConfirmed(false);
     setDeparturePlanningData(null);
     setArrivalPlanningData(null);
     setSelectedDepartureRunwayName(null);
@@ -929,6 +973,8 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
     setSelectedArrivalProcedureId(null);
     setSelectedArrivalTransitionId(null);
     setSelectedApproachProcedureId(null);
+    setIsDepartureProcedureConfirmed(false);
+    setIsArrivalProcedureConfirmed(false);
     setDeparturePlanningData(null);
     setArrivalPlanningData(null);
     setSelectedDepartureRunwayName(null);
@@ -1092,6 +1138,7 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
                       onClick={() => {
                         setSelectedDepartureRunwayName(runway.runwayName);
                         setSelectedDepartureProcedureId(null);
+                        setIsDepartureProcedureConfirmed(false);
                       }}
                     />
                   ))}
@@ -1102,10 +1149,23 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
                     : "Select a departure runway to preview matching SID procedures on the map."}
                 </p>
                 {selectedDepartureProcedure ? (
-                  <p className="mt-2 text-sm text-emerald-100">
-                    Selected SID: {selectedDepartureProcedure.name}
-                    {selectedDepartureProcedureRunwayLabel ? ` / RWY ${selectedDepartureProcedureRunwayLabel}` : ""}
-                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                    <p className="text-sm text-emerald-100">
+                      Selected SID: {selectedDepartureProcedure.name}
+                      {selectedDepartureProcedureRunwayLabel ? ` / RWY ${selectedDepartureProcedureRunwayLabel}` : ""}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setIsDepartureProcedureConfirmed((current) => !current)}
+                      className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                        isDepartureProcedureConfirmed
+                          ? "border-emerald-200/70 bg-emerald-300/20 text-emerald-50"
+                          : "border-emerald-300/30 bg-emerald-300/10 text-emerald-100 hover:border-emerald-200/60 hover:bg-emerald-300/18"
+                      }`}
+                    >
+                      {isDepartureProcedureConfirmed ? "SID confirmed" : "Confirm SID"}
+                    </button>
+                  </div>
                 ) : null}
               </section>
 
@@ -1123,6 +1183,7 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
                       onClick={() => {
                         setSelectedArrivalRunwayName(runway.runwayName);
                         setSelectedArrivalProcedureId(null);
+                        setIsArrivalProcedureConfirmed(false);
                         setSelectedArrivalTransitionId(null);
                         setSelectedApproachProcedureId(null);
                       }}
@@ -1135,10 +1196,23 @@ export function RoutePage({ onRoutePreviewChange, planningSelection }: RoutePage
                     : "Select an arrival runway to preview matching STAR procedures on the map."}
                 </p>
                 {selectedArrivalProcedure ? (
-                  <p className="mt-2 text-sm text-amber-100">
-                    Selected STAR: {selectedArrivalProcedure.name}
-                    {selectedArrivalProcedureRunwayLabel ? ` / RWY ${selectedArrivalProcedureRunwayLabel}` : ""}
-                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                    <p className="text-sm text-amber-100">
+                      Selected STAR: {selectedArrivalProcedure.name}
+                      {selectedArrivalProcedureRunwayLabel ? ` / RWY ${selectedArrivalProcedureRunwayLabel}` : ""}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setIsArrivalProcedureConfirmed((current) => !current)}
+                      className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                        isArrivalProcedureConfirmed
+                          ? "border-amber-200/70 bg-amber-300/20 text-amber-50"
+                          : "border-amber-300/30 bg-amber-300/10 text-amber-100 hover:border-amber-200/60 hover:bg-amber-300/18"
+                      }`}
+                    >
+                      {isArrivalProcedureConfirmed ? "STAR confirmed" : "Confirm STAR"}
+                    </button>
+                  </div>
                 ) : null}
                 {selectedArrivalTransition ? (
                   <p className="mt-2 text-sm text-orange-100">
