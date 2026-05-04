@@ -167,7 +167,6 @@ export default function App() {
   const [layerError, setLayerError] = useState<string | null>(null);
   const [viewport, setViewport] = useState<ViewportState | null>(null);
   const [visibility, setVisibility] = useState(initialVisibility);
-  const [airportFilter, setAirportFilter] = useState("");
   const [selectedAirportIdent, setSelectedAirportIdent] = useState<string | null>(null);
   const [airportProcedures, setAirportProcedures] = useState<AirportProceduresResponse | null>(null);
   const [procedureError, setProcedureError] = useState<string | null>(null);
@@ -196,7 +195,6 @@ export default function App() {
   const [routePlanningOverlay, setRoutePlanningOverlay] = useState<RoutePlanningOverlay | null>(null);
   const [routeMapOverlay, setRouteMapOverlay] = useState<RouteMapOverlay | null>(null);
   const [planningSelection, setPlanningSelection] = useState<RoutePlanningSelection | null>(null);
-  const deferredAirportFilter = useDeferredValue(airportFilter);
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const focusRequestIdRef = useRef(0);
   const showMapStage = activePage !== "eaip";
@@ -640,23 +638,6 @@ export default function App() {
     });
   }, [routeMapOverlay?.selection.candidate]);
 
-  const visibleAirports = useMemo(() => {
-    const airports = layers?.airports ?? [];
-    const normalizedFilter = deferredAirportFilter.trim().toLowerCase();
-
-    if (!normalizedFilter) {
-      return airports;
-    }
-
-    return airports.filter((airport) => {
-      return (
-        airport.ident.toLowerCase().includes(normalizedFilter) ||
-        airport.name.toLowerCase().includes(normalizedFilter) ||
-        airport.icao?.toLowerCase().includes(normalizedFilter)
-      );
-    });
-  }, [deferredAirportFilter, layers]);
-
   const selectedAirport = useMemo(() => {
     const byVisibleList = layers?.airports.find((airport) => airport.ident === selectedAirportIdent);
     if (byVisibleList) {
@@ -805,16 +786,6 @@ export default function App() {
     });
   }
 
-  function handleViewportAirportSelect(airport: AirportFeature) {
-    setSelectedAirwayPath([]);
-    setSelectedAirportIdent(airport.ident);
-    queueMapFocus({
-      kind: "location",
-      location: airport.location,
-      preserveZoom: true,
-    });
-  }
-
   function handleProcedureListSelect(procedureId: number) {
     setSelectedAirwayPath([]);
     setSelectedProcedureId(procedureId);
@@ -953,11 +924,6 @@ export default function App() {
                   layers={layers}
                   visibility={visibility}
                   onToggleLayer={toggleLayer}
-                  airportFilter={airportFilter}
-                  onAirportFilterChange={setAirportFilter}
-                  visibleAirports={visibleAirports}
-                  selectedAirportIdent={selectedAirportIdent}
-                  onAirportSelect={handleViewportAirportSelect}
                   selectedAirport={selectedAirport}
                   totalProcedureCount={totalProcedureCount}
                   visibleProcedureCount={visibleProcedureCount}

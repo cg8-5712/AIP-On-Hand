@@ -13,11 +13,6 @@ type MapDetailPageProps = {
   layers: MapLayersResponse | null;
   visibility: LayerVisibility;
   onToggleLayer: (key: keyof LayerVisibility) => void;
-  airportFilter: string;
-  onAirportFilterChange: (value: string) => void;
-  visibleAirports: AirportFeature[];
-  selectedAirportIdent: string | null;
-  onAirportSelect: (airport: AirportFeature) => void;
   selectedAirport: AirportFeature | null;
   totalProcedureCount: number;
   visibleProcedureCount: number;
@@ -33,11 +28,6 @@ export function MapDetailPage({
   layers,
   visibility,
   onToggleLayer,
-  airportFilter,
-  onAirportFilterChange,
-  visibleAirports,
-  selectedAirportIdent,
-  onAirportSelect,
   selectedAirport,
   totalProcedureCount,
   visibleProcedureCount,
@@ -55,11 +45,6 @@ export function MapDetailPage({
         layers={layers}
         visibility={visibility}
         onToggleLayer={onToggleLayer}
-        airportFilter={airportFilter}
-        onAirportFilterChange={onAirportFilterChange}
-        visibleAirports={visibleAirports}
-        selectedAirportIdent={selectedAirportIdent}
-        onAirportSelect={onAirportSelect}
       />
 
       <section className={`${panelClass} flex min-h-0 flex-col xl:overflow-hidden`}>

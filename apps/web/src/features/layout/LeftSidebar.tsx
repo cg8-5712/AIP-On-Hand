@@ -1,4 +1,4 @@
-import type { AirportFeature, MapLayersResponse } from "../../types/api";
+import type { MapLayersResponse } from "../../types/api";
 import type { LayerVisibility } from "../app/types";
 import { LayerRow, MiniDataTile } from "../shared/PanelPrimitives";
 
@@ -16,11 +16,6 @@ type LeftSidebarProps = {
   layers: MapLayersResponse | null;
   visibility: LayerVisibility;
   onToggleLayer: (key: keyof LayerVisibility) => void;
-  airportFilter: string;
-  onAirportFilterChange: (value: string) => void;
-  visibleAirports: AirportFeature[];
-  selectedAirportIdent: string | null;
-  onAirportSelect: (airport: AirportFeature) => void;
 };
 
 export function LeftSidebar({
@@ -28,11 +23,6 @@ export function LeftSidebar({
   layers,
   visibility,
   onToggleLayer,
-  airportFilter,
-  onAirportFilterChange,
-  visibleAirports,
-  selectedAirportIdent,
-  onAirportSelect,
 }: LeftSidebarProps) {
   return (
     <aside className={`${panelClass} flex min-h-0 flex-col`}>
@@ -65,20 +55,12 @@ export function LeftSidebar({
       <hr className="panel-divider" />
 
       <div>
-        <p className="section-kicker">Viewport Browser</p>
-        <h2 className="section-title">Visible Airports</h2>
-        <label className="mt-3 block text-[0.8rem] text-slate-400" htmlFor="airport-filter">
-          Filter current viewport
-          <input
-            id="airport-filter"
-            name="airport-filter"
-            type="search"
-            placeholder="ICAO, ident, or airport name"
-            value={airportFilter}
-            onChange={(event) => onAirportFilterChange(event.target.value)}
-            className="input-shell"
-          />
-        </label>
+        <p className="section-kicker">Viewport Snapshot</p>
+        <h2 className="section-title">Live map counts</h2>
+        <p className="mt-3 text-sm leading-6 text-slate-300">
+          Airport browsing now stays on the map canvas and global search. This panel keeps only layer controls and
+          current viewport totals.
+        </p>
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-3">
@@ -88,42 +70,10 @@ export function LeftSidebar({
         <MiniDataTile label="VOR / NDB" value={`${layers?.vors.length ?? 0} / ${layers?.ndbs.length ?? 0}`} />
       </div>
 
-      <ul className="scroll-panel mt-4 grid min-h-0 flex-1 list-none gap-3 overflow-y-auto pr-1">
-        {visibleAirports.slice(0, 40).map((airport) => (
-          <li key={airport.id} className="m-0">
-            <button
-              className={
-                `grid w-full cursor-pointer gap-1 rounded-[18px] border px-4 py-3 text-left transition duration-200 motion-reduce:transition-none ` +
-                (airport.ident === selectedAirportIdent
-                  ? "border-cyan-300/34 bg-cyan-950/45 text-slate-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
-                  : "border-slate-700/60 bg-slate-950/52 text-slate-300 hover:border-cyan-300/24 hover:bg-slate-900/88")
-              }
-              type="button"
-              onClick={() => onAirportSelect(airport)}
-              aria-label={airport.name}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <strong className="font-mono text-[0.92rem] text-amber-300">
-                  {airport.ident}
-                  {airport.icao ? ` | ${airport.icao}` : ""}
-                </strong>
-                <span className="rounded-full bg-slate-900/80 px-2.5 py-1 text-[0.68rem] uppercase tracking-[0.12em] text-slate-400">
-                  {airport.numApproaches} proc
-                </span>
-              </div>
-              <span className="text-[0.95rem] text-slate-100">{airport.name}</span>
-              <span className="text-[0.8rem] text-slate-500">
-                {airport.country ?? "N/A"} / RWY {airport.longestRunwayLength || "n/a"} ft
-              </span>
-            </button>
-          </li>
-        ))}
-        {visibleAirports.length === 0 ? (
-          <li className="overlay-card m-0 text-sm leading-6 text-slate-300">
-            No visible airports match the current filter.
-          </li>
-        ) : null}
-      </ul>
+      <div className="mt-4 rounded-[18px] border border-slate-700/60 bg-slate-950/52 px-4 py-4 text-sm leading-6 text-slate-300">
+        Click airports directly on the map to inspect procedures, or use the header search when you need to jump by
+        ICAO, ident, or name.
+      </div>
     </aside>
   );
 }
