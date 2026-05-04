@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RoutePage } from "./RoutePage";
@@ -278,6 +278,154 @@ describe("RoutePage", () => {
           selectedDepartureRunwayName: "01",
           departure: expect.objectContaining({
             selectedProcedureId: 71967,
+          }),
+        }),
+      );
+    });
+  });
+
+  it("matches runway-both procedures from arinc names when runway_name is missing", async () => {
+    const user = userEvent.setup();
+    const previewSpy = vi.fn();
+
+    vi.spyOn(api, "planRoute").mockResolvedValue({
+      departureAirport: {
+        id: 10,
+        ident: "ZBAD",
+        icao: "ZBAD",
+        name: "Daxing",
+        location: { lon: 116.4106, lat: 39.5098 },
+      },
+      arrivalAirport: {
+        id: 11,
+        ident: "ZBAD",
+        icao: "ZBAD",
+        name: "Daxing",
+        location: { lon: 116.4106, lat: 39.5098 },
+      },
+      cruiseAltitudeFt: 12000,
+      notes: [],
+      candidates: [
+        {
+          totalDistanceNm: 88,
+          airwayDistanceNm: 40,
+          departure: {
+            ident: "OMDEK",
+            location: { lon: 116.1, lat: 39.7 },
+            minimumProcedureDistanceNm: 18,
+            procedures: [],
+          },
+          airways: [
+            {
+              airwayName: "W37",
+              airwayType: "B",
+              routeType: "R",
+              direction: "N",
+              minimumAltitude: 0,
+              maximumAltitude: 99999,
+              fromIdent: "OMDEK",
+              toIdent: "ENVIP",
+              from: { lon: 116.1, lat: 39.7 },
+              to: { lon: 116.7, lat: 39.2 },
+              distanceNm: 40,
+            },
+          ],
+          arrival: {
+            ident: "ENVIP",
+            location: { lon: 116.7, lat: 39.2 },
+            minimumProcedureDistanceNm: 29,
+            procedures: [],
+          },
+          approaches: [],
+        },
+      ],
+    });
+
+    vi.spyOn(api, "getAirportProcedures").mockResolvedValue({
+      airport: {
+        id: 10,
+        ident: "ZBAD",
+        icao: "ZBAD",
+        name: "Daxing",
+        location: { lon: 116.4106, lat: 39.5098 },
+      },
+      procedures: [
+        {
+          id: 103220,
+          airportIdent: "ZBAD",
+          airportName: "Daxing",
+          name: "BELA6M",
+          arincName: "RWY01L",
+          procedureType: "STAR",
+          procedureKind: "star",
+          runwayName: "01L",
+          legs: 8,
+        },
+        {
+          id: 103221,
+          airportIdent: "ZBAD",
+          airportName: "Daxing",
+          name: "BELA6M",
+          arincName: "RW35B",
+          procedureType: "STAR",
+          procedureKind: "star",
+          runwayName: null,
+          legs: 8,
+        },
+      ],
+    });
+
+    vi.spyOn(api, "getAirportRunwayEnds").mockResolvedValue([
+      {
+        runwayName: "35L",
+        reciprocalRunwayName: "17R",
+        headingDeg: 350,
+        lengthFt: 12467,
+        widthFt: 197,
+        surface: "CON",
+        isTakeoff: true,
+        isLanding: true,
+        ilsIdent: null,
+        location: { lon: 116.401, lat: 39.52 },
+      },
+      {
+        runwayName: "35R",
+        reciprocalRunwayName: "17L",
+        headingDeg: 350,
+        lengthFt: 12467,
+        widthFt: 197,
+        surface: "CON",
+        isTakeoff: true,
+        isLanding: true,
+        ilsIdent: null,
+        location: { lon: 116.421, lat: 39.52 },
+      },
+    ]);
+
+    const { container } = render(<RoutePage onRoutePreviewChange={previewSpy} />);
+    const routeSection = container.querySelector("section");
+    expect(routeSection).not.toBeNull();
+    const scope = within(routeSection as HTMLElement);
+
+    await user.type(scope.getByLabelText(/departure/i), "zbad");
+    await user.type(scope.getByLabelText(/arrival/i), "zbad");
+    await user.clear(scope.getByLabelText(/cruise alt/i));
+    await user.type(scope.getByLabelText(/cruise alt/i), "12000");
+    await user.click(scope.getByRole("button", { name: /plan route/i }));
+    await user.click(await scope.findByRole("button", { name: /show on map/i }));
+
+    const runway35lButtons = await scope.findAllByRole("button", { name: "RWY 35L" });
+    await user.click(runway35lButtons[runway35lButtons.length - 1]);
+
+    await waitFor(() => {
+      expect(previewSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          arrivalProcedureId: null,
+        }),
+        expect.objectContaining({
+          selectedArrivalRunwayName: "35L",
+          arrivalStar: expect.objectContaining({
+            displayedProcedureIds: [103221],
           }),
         }),
       );

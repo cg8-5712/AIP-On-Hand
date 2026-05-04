@@ -94,6 +94,46 @@ function findProcedureSummaryById(procedures: ProcedureSummary[], procedureId: n
   return procedures.find((procedure) => procedure.id === procedureId) ?? null;
 }
 
+function parseArincRunwayToken(value: string | null | undefined) {
+  const normalized = normalizeRunwayName(value);
+  if (!normalized) {
+    return null;
+  }
+
+  const match = normalized.match(/^RWY?(\d{1,2})([LRCB])?$/);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    direction: match[1],
+    side: match[2] ?? null,
+  };
+}
+
+function resolveProcedureRunwayLabel(procedure: ProcedureSummary | null) {
+  if (!procedure) {
+    return null;
+  }
+
+  const directRunwayName = normalizeRunwayName(procedure.runwayName);
+  if (directRunwayName) {
+    return directRunwayName;
+  }
+
+  const normalizedArincName = normalizeRunwayName(procedure.arincName);
+  if (!normalizedArincName) {
+    return null;
+  }
+
+  const arincRunway = parseArincRunwayToken(normalizedArincName);
+  if (!arincRunway) {
+    return null;
+  }
+
+  return `${arincRunway.direction}${arincRunway.side ?? ""}`;
+}
+
 function defaultProcedureId(procedures: RouteProcedureOption[]) {
   return procedures[0]?.procedureId ?? null;
 }
@@ -101,6 +141,44 @@ function defaultProcedureId(procedures: RouteProcedureOption[]) {
 function normalizeRunwayName(value: string | null | undefined) {
   const normalized = value?.trim().toUpperCase();
   return normalized ? normalized : null;
+}
+
+function runwayDirectionKey(value: string | null | undefined) {
+  const normalized = normalizeRunwayName(value);
+  if (!normalized) {
+    return null;
+  }
+
+  const match = normalized.match(/^(\d{1,2})/);
+  return match?.[1] ?? null;
+}
+
+function procedureRunwayMatchesSelectedRunway(procedure: ProcedureSummary, runwayName: string) {
+  const normalizedRunwayName = normalizeRunwayName(runwayName);
+  if (!normalizedRunwayName) {
+    return false;
+  }
+
+  const directRunwayName = normalizeRunwayName(procedure.runwayName);
+  if (directRunwayName) {
+    return directRunwayName === normalizedRunwayName;
+  }
+
+  const selectedDirection = runwayDirectionKey(normalizedRunwayName);
+  if (!selectedDirection) {
+    return false;
+  }
+
+  const arincRunway = parseArincRunwayToken(procedure.arincName);
+  if (!arincRunway) {
+    return false;
+  }
+
+  if (arincRunway.direction !== selectedDirection) {
+    return false;
+  }
+
+  return arincRunway.side === null || arincRunway.side === "B" || normalizedRunwayName.endsWith(arincRunway.side);
 }
 
 function sortRunwaysForOperation(runways: AirportRunwayEnd[], operation: "departure" | "arrival") {
@@ -119,7 +197,7 @@ function filterProceduresByRunway(procedures: ProcedureSummary[], runwayName: st
     return procedures;
   }
 
-  return procedures.filter((procedure) => normalizeRunwayName(procedure.runwayName) === normalizedRunwayName);
+  return procedures.filter((procedure) => procedureRunwayMatchesSelectedRunway(procedure, normalizedRunwayName));
 }
 
 function ProcedureChip({
@@ -366,6 +444,18 @@ export function RoutePage({ onRoutePreviewChange, planningProcedureSelectionId }
   const selectedApproachProcedure = useMemo(
     () => findProcedureSummaryById(availableArrivalApproachProcedures, selectedApproachProcedureId),
     [availableArrivalApproachProcedures, selectedApproachProcedureId],
+  );
+  const selectedDepartureProcedureRunwayLabel = useMemo(
+    () => resolveProcedureRunwayLabel(selectedDepartureProcedure) ?? selectedDepartureRunwayName,
+    [selectedDepartureProcedure, selectedDepartureRunwayName],
+  );
+  const selectedArrivalProcedureRunwayLabel = useMemo(
+    () => resolveProcedureRunwayLabel(selectedArrivalProcedure) ?? selectedArrivalRunwayName,
+    [selectedArrivalProcedure, selectedArrivalRunwayName],
+  );
+  const selectedApproachProcedureRunwayLabel = useMemo(
+    () => resolveProcedureRunwayLabel(selectedApproachProcedure) ?? selectedArrivalRunwayName,
+    [selectedApproachProcedure, selectedArrivalRunwayName],
   );
   const activeApproachStatusText = useMemo(() => {
     if (selectedApproachProcedure && selectedArrivalRunwayName) {
@@ -839,7 +929,8 @@ export function RoutePage({ onRoutePreviewChange, planningProcedureSelectionId }
                 </p>
                 {selectedDepartureProcedure ? (
                   <p className="mt-2 text-sm text-emerald-100">
-                    Selected SID: {selectedDepartureProcedure.name} / RWY {selectedDepartureRunwayName}
+                    Selected SID: {selectedDepartureProcedure.name}
+                    {selectedDepartureProcedureRunwayLabel ? ` / RWY ${selectedDepartureProcedureRunwayLabel}` : ""}
                   </p>
                 ) : null}
               </section>
@@ -870,12 +961,14 @@ export function RoutePage({ onRoutePreviewChange, planningProcedureSelectionId }
                 </p>
                 {selectedArrivalProcedure ? (
                   <p className="mt-2 text-sm text-amber-100">
-                    Selected STAR: {selectedArrivalProcedure.name} / RWY {selectedArrivalRunwayName}
+                    Selected STAR: {selectedArrivalProcedure.name}
+                    {selectedArrivalProcedureRunwayLabel ? ` / RWY ${selectedArrivalProcedureRunwayLabel}` : ""}
                   </p>
                 ) : null}
                 {selectedApproachProcedure ? (
                   <p className="mt-2 text-sm text-fuchsia-100">
-                    Selected approach: {selectedApproachProcedure.name} / RWY {selectedArrivalRunwayName}
+                    Selected approach: {selectedApproachProcedure.name}
+                    {selectedApproachProcedureRunwayLabel ? ` / RWY ${selectedApproachProcedureRunwayLabel}` : ""}
                   </p>
                 ) : null}
               </section>
@@ -890,18 +983,18 @@ export function RoutePage({ onRoutePreviewChange, planningProcedureSelectionId }
                 index={index}
                 isActive={activeCandidateIndex === index}
                 departureSelectionLabel={
-                  activeCandidateIndex === index && selectedDepartureProcedure && selectedDepartureRunwayName
-                    ? `${selectedDepartureProcedure.name} / RWY ${selectedDepartureRunwayName}`
+                  activeCandidateIndex === index && selectedDepartureProcedure
+                    ? `${selectedDepartureProcedure.name}${selectedDepartureProcedureRunwayLabel ? ` / RWY ${selectedDepartureProcedureRunwayLabel}` : ""}`
                     : null
                 }
                 arrivalSelectionLabel={
-                  activeCandidateIndex === index && selectedArrivalProcedure && selectedArrivalRunwayName
-                    ? `${selectedArrivalProcedure.name} / RWY ${selectedArrivalRunwayName}`
+                  activeCandidateIndex === index && selectedArrivalProcedure
+                    ? `${selectedArrivalProcedure.name}${selectedArrivalProcedureRunwayLabel ? ` / RWY ${selectedArrivalProcedureRunwayLabel}` : ""}`
                     : null
                 }
                 approachSelectionLabel={
-                  activeCandidateIndex === index && selectedApproachProcedure && selectedArrivalRunwayName
-                    ? `${selectedApproachProcedure.name} / RWY ${selectedArrivalRunwayName}`
+                  activeCandidateIndex === index && selectedApproachProcedure
+                    ? `${selectedApproachProcedure.name}${selectedApproachProcedureRunwayLabel ? ` / RWY ${selectedApproachProcedureRunwayLabel}` : ""}`
                     : null
                 }
                 approachStatusText={activeCandidateIndex === index ? activeApproachStatusText : null}
