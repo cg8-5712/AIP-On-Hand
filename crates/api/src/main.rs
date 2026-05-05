@@ -744,7 +744,8 @@ fn nav_db_path() -> PathBuf {
     env::var("AIP_NAVDB_PATH")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
-            PathBuf::from(r"F:\bian\jsproject\Open-Navigraph\data\little_navmap_navigraph.sqlite")
+            // PathBuf::from(r"F:\bian\jsproject\Open-Navigraph\data\little_navmap_navigraph.sqlite")
+            PathBuf::from(r"E:\msg\little_navmap_xp12.sqlite")
         })
 }
 
